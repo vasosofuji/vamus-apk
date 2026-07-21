@@ -259,12 +259,12 @@ a { color: inherit; text-decoration: none; }
 .swipe-bg-queue {
   position: absolute;
   top: 0; right: 0; bottom: 0; left: 0;
-  background: linear-gradient(90deg, transparent 50%, var(--primary-color) 100%);
+  background: linear-gradient(90deg, var(--primary-color) 0%, transparent 50%);
   color: white;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 24px;
+  justify-content: flex-start;
+  padding-left: 24px;
   font-weight: 600;
   font-size: 0.9rem;
   z-index: 1;

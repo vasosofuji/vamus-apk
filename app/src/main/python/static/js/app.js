@@ -240,16 +240,21 @@ function fetchLyrics() {
     
     const track = Store.currentTrack.title || '';
     const artist = Store.currentTrack.channel?.name || '';
-    
-    fetch(getApiUrl(`/api/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}`))
+
+    // Cap the wait so a slow/unreachable lyrics provider can't spin forever.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    fetch(getApiUrl(`/api/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}`), { signal: controller.signal })
         .then(r => r.json())
         .then(data => {
+            clearTimeout(timeoutId);
             if (data.syncedLyrics) {
                 window._lyricsData = parseLrc(data.syncedLyrics);
                 renderLyricLines();
             } else if (data.plainLyrics) {
                 window._lyricsData = [];
-                container.innerHTML = data.plainLyrics.split('\n').map(line => 
+                container.innerHTML = data.plainLyrics.split('\n').map(line =>
                     `<div class="lyric-line" style="color:rgba(255,255,255,0.7)">${escapeHtml(line)}</div>`
                 ).join('');
             } else {
@@ -257,7 +262,9 @@ function fetchLyrics() {
                 container.innerHTML = '<div style="color:var(--text-secondary);font-size:1.2rem">No lyrics available</div>';
             }
         }).catch(() => {
-            container.innerHTML = '<div style="color:var(--text-secondary)">Failed to load lyrics</div>';
+            clearTimeout(timeoutId);
+            window._lyricsData = [];
+            container.innerHTML = '<div style="color:var(--text-secondary);font-size:1.1rem">Couldn\'t load lyrics. Please try again.</div>';
         });
 }
 
@@ -569,74 +576,91 @@ function setupSwipeToQueue() {
     let activeTrackData = null;
     let swipeBg = null;
     
+    // Reset a row's swipe visuals back to resting state.
+    const resetSwipe = (content, bg, animate) => {
+        if (!content) return;
+        content.style.transition = animate ? 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)' : 'none';
+        content.style.transform = 'translateX(0px)';
+        if (bg) bg.style.opacity = '0';
+    };
+
     document.addEventListener('touchstart', (e) => {
         const row = e.target.closest('.track-row');
         if (!row) return;
-        
+
         activeRowContent = row.querySelector('.track-row-content');
         if (!activeRowContent) return;
-        
+
         activeTrackData = JSON.parse(row.getAttribute('data-track') || 'null');
         swipeBg = row.querySelector('.swipe-bg-queue');
-        
+
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
         isSwiping = false;
         activeRowContent.style.transition = 'none';
-        if (swipeBg) swipeBg.style.opacity = '1';
+        // Start hidden — only reveal the "Queue" background while actually swiping.
+        if (swipeBg) swipeBg.style.opacity = '0';
     }, { passive: true });
-    
+
     document.addEventListener('touchmove', (e) => {
         if (!activeRowContent) return;
-        
+
         const diffX = e.touches[0].clientX - startX;
         const diffY = e.touches[0].clientY - startY;
-        
+
         if (!isSwiping) {
             if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
                 isSwiping = true;
             } else if (Math.abs(diffY) > Math.abs(diffX)) {
+                // Vertical scroll — abandon the swipe and clear any reveal.
+                if (swipeBg) swipeBg.style.opacity = '0';
                 activeRowContent = null;
                 return;
             }
         }
-        
+
         if (isSwiping) {
-            if (diffX < 0) {
+            // Swipe RIGHT to add to queue.
+            if (diffX > 0) {
                 if (e.cancelable) e.preventDefault();
                 let dragX = diffX;
-                if (dragX < -150) {
-                    dragX = -150 + (dragX + 150) * 0.2;
+                if (dragX > 150) {
+                    dragX = 150 + (dragX - 150) * 0.2;
                 }
                 activeRowContent.style.transform = `translateX(${dragX}px)`;
                 if (swipeBg) {
-                    const ratio = Math.min(Math.abs(diffX) / 80, 1);
+                    const ratio = Math.min(diffX / 80, 1);
                     swipeBg.style.opacity = ratio.toString();
                 }
             } else {
                 activeRowContent.style.transform = 'translateX(0px)';
+                if (swipeBg) swipeBg.style.opacity = '0';
             }
         }
     }, { passive: false });
-    
+
     document.addEventListener('touchend', (e) => {
         if (!activeRowContent) return;
-        
+
         const diffX = e.changedTouches[0].clientX - startX;
-        activeRowContent.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-        
-        if (isSwiping && diffX < -80 && activeTrackData) {
-            activeRowContent.style.transform = 'translateX(-100%)';
-            addToPlayerQueue(activeTrackData);
-            setTimeout(() => {
-                activeRowContent.style.transform = 'translateX(0px)';
-            }, 300);
+        // Capture locals so the delayed reset isn't clobbered by a new gesture.
+        const content = activeRowContent;
+        const bg = swipeBg;
+        const track = activeTrackData;
+
+        if (isSwiping && diffX > 80 && track) {
+            content.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+            content.style.transform = 'translateX(100%)';
+            if (bg) bg.style.opacity = '0';
+            addToPlayerQueue(track);
+            setTimeout(() => resetSwipe(content, bg, false), 300);
         } else {
-            activeRowContent.style.transform = 'translateX(0px)';
+            resetSwipe(content, bg, true);
         }
-        
+
         activeRowContent = null;
         activeTrackData = null;
+        swipeBg = null;
     }, { passive: true });
 }
 
@@ -976,56 +1000,62 @@ function makeScrubber(trackId, fillId, thumbId, currentTextId) {
 // Like Button Long Press & Add to Playlist Modal
 let longPressTimer = null;
 let longPressTriggered = false;
-let longPressActiveButton = null;
+// Timestamp until which the next click on a like button should be swallowed
+// (the click that would otherwise fire right after a long-press activates).
+let suppressLikeClickUntil = 0;
 
 function setupLikeButtonLongPress() {
+    const cancelPress = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    };
+
     const startPress = (e) => {
         const btn = e.target.closest('.like-btn');
         if (!btn) return;
-        
-        longPressActiveButton = btn;
+
+        cancelPress();
         longPressTriggered = false;
-        
+
         longPressTimer = setTimeout(() => {
+            longPressTimer = null;
             longPressTriggered = true;
+            // Swallow only the like-button click that immediately follows.
+            suppressLikeClickUntil = Date.now() + 800;
             if (navigator.vibrate) {
                 navigator.vibrate(50);
             }
             triggerPlaylistPopupForButton(btn);
         }, 600);
     };
-    
+
     const endPress = (e) => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-        if (longPressTriggered) {
+        cancelPress();
+        // If a long press fired, prevent the trailing tap from toggling like.
+        if (longPressTriggered && e.cancelable) {
             e.preventDefault();
-            e.stopPropagation();
         }
+        longPressTriggered = false;
     };
-    
+
     window.addEventListener('mousedown', startPress, { passive: true });
     window.addEventListener('touchstart', startPress, { passive: true });
-    
-    window.addEventListener('click', (e) => {
-        if (longPressActiveButton && longPressTriggered) {
-            e.preventDefault();
-            e.stopPropagation();
-            longPressTriggered = false;
-            longPressActiveButton = null;
-        }
-    }, true);
-    
     window.addEventListener('mouseup', endPress);
     window.addEventListener('touchend', endPress);
-    window.addEventListener('touchmove', (e) => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
+    window.addEventListener('touchcancel', cancelPress, { passive: true });
+    window.addEventListener('touchmove', cancelPress, { passive: true });
+
+    // Only suppress the follow-up click on the like button itself, and only
+    // briefly. Clicks on the playlist popup (or anything else) are untouched.
+    window.addEventListener('click', (e) => {
+        if (e.target.closest('.like-btn') && Date.now() < suppressLikeClickUntil) {
+            e.preventDefault();
+            e.stopPropagation();
         }
-    }, { passive: true });
+        suppressLikeClickUntil = 0;
+    }, true);
 }
 
 function triggerPlaylistPopupForButton(btn) {

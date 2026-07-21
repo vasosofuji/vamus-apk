@@ -716,65 +716,61 @@ def api_lyrics():
     if not track or not artist:
         return jsonify({'error': 'Query parameters track and artist are required'}), 400
 
+    synced = None
+    plain = None
+
     try:
-        # Step 1: Exact match
+        # Step 1: lrclib exact match — best source, provides time-synced lyrics.
         try:
             resp = http_requests.get(
                 'https://lrclib.net/api/get',
                 params={'track_name': track, 'artist_name': artist},
                 headers=LRCLIB_HEADERS,
-                timeout=8,
+                timeout=6,
             )
             if resp.status_code == 200:
                 data = resp.json()
-                if data.get('syncedLyrics'):
-                    return jsonify({
-                        'syncedLyrics': data.get('syncedLyrics'),
-                        'plainLyrics': data.get('plainLyrics'),
-                    })
+                synced = data.get('syncedLyrics') or synced
+                plain = data.get('plainLyrics') or plain
         except Exception:
             pass
 
-        # Step 2: Search track + artist
-        try:
-            resp = http_requests.get(
-                'https://lrclib.net/api/search',
-                params={'q': f'{track} {artist}'},
-                headers=LRCLIB_HEADERS,
-                timeout=8,
-            )
-            if resp.status_code == 200:
-                results = resp.json()
-                for item in results:
-                    if item.get('syncedLyrics'):
-                        return jsonify({
-                            'syncedLyrics': item.get('syncedLyrics'),
-                            'plainLyrics': item.get('plainLyrics'),
-                        })
-        except Exception:
-            pass
+        # Step 2: keyless fallback for plain lyrics (lyrics.ovh). Keeps lyrics
+        # working when lrclib is down or has no match, and returns quickly.
+        if not synced and not plain:
+            try:
+                resp = http_requests.get(
+                    'https://api.lyrics.ovh/v1/%s/%s' % (
+                        urllib.parse.quote(artist), urllib.parse.quote(track)),
+                    timeout=6,
+                )
+                if resp.status_code == 200:
+                    plain = resp.json().get('lyrics') or plain
+            except Exception:
+                pass
 
-        # Step 3: Search track only
-        try:
-            resp = http_requests.get(
-                'https://lrclib.net/api/search',
-                params={'q': track},
-                headers=LRCLIB_HEADERS,
-                timeout=8,
-            )
-            if resp.status_code == 200:
-                results = resp.json()
-                for item in results:
-                    if item.get('syncedLyrics'):
-                        return jsonify({
-                            'syncedLyrics': item.get('syncedLyrics'),
-                            'plainLyrics': item.get('plainLyrics'),
-                        })
-        except Exception:
-            pass
+        # Step 3: lrclib search as a last resort (looser match) for songs whose
+        # exact title/artist didn't hit above.
+        if not synced and not plain:
+            try:
+                resp = http_requests.get(
+                    'https://lrclib.net/api/search',
+                    params={'q': f'{track} {artist}'},
+                    headers=LRCLIB_HEADERS,
+                    timeout=6,
+                )
+                if resp.status_code == 200:
+                    for item in resp.json():
+                        if item.get('syncedLyrics'):
+                            synced = item.get('syncedLyrics')
+                            plain = item.get('plainLyrics') or plain
+                            break
+                        if not plain and item.get('plainLyrics'):
+                            plain = item.get('plainLyrics')
+            except Exception:
+                pass
 
-        # Nothing found
-        return jsonify({'syncedLyrics': None, 'plainLyrics': None})
+        return jsonify({'syncedLyrics': synced, 'plainLyrics': plain})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
