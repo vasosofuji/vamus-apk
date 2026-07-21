@@ -387,7 +387,6 @@ function showMobilePlayer() {
         makeScrubber('mobile-progress-track', 'mobile-progress-fill', 'mobile-progress-thumb', 'mobile-current-time');
     }, 50);
 }
-}
 
 function openMobileMenu(event) {
     event.preventDefault();
