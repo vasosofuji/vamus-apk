@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupBackButton();
     setupLyricsContainer();
     setupSwipeToQueue();
+    setupLikeButtonLongPress();
     
     // Listen for store changes
     Store.on('playlistsChanged', () => {
@@ -865,4 +866,172 @@ function performFloatingSearch() {
         navigate('/search?q=' + encodeURIComponent(query));
         collapseFloatingSearch();
     }
+}
+
+// Like Button Long Press & Add to Playlist Modal
+let longPressTimer = null;
+let longPressTriggered = false;
+let longPressActiveButton = null;
+
+function setupLikeButtonLongPress() {
+    const startPress = (e) => {
+        const btn = e.target.closest('.like-btn');
+        if (!btn) return;
+        
+        longPressActiveButton = btn;
+        longPressTriggered = false;
+        
+        longPressTimer = setTimeout(() => {
+            longPressTriggered = true;
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
+            triggerPlaylistPopupForButton(btn);
+        }, 600);
+    };
+    
+    const endPress = (e) => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        if (longPressTriggered) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    };
+    
+    window.addEventListener('mousedown', startPress, { passive: true });
+    window.addEventListener('touchstart', startPress, { passive: true });
+    
+    window.addEventListener('click', (e) => {
+        if (longPressActiveButton && longPressTriggered) {
+            e.preventDefault();
+            e.stopPropagation();
+            longPressTriggered = false;
+            longPressActiveButton = null;
+        }
+    }, true);
+    
+    window.addEventListener('mouseup', endPress);
+    window.addEventListener('touchend', endPress);
+    window.addEventListener('touchmove', (e) => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }, { passive: true });
+}
+
+function triggerPlaylistPopupForButton(btn) {
+    const row = btn.closest('.track-row');
+    let track = null;
+    if (row) {
+        const trackData = row.getAttribute('data-track');
+        if (trackData) {
+            try {
+                track = JSON.parse(trackData);
+            } catch (e) {
+                console.error("Failed to parse data-track JSON", e);
+            }
+        }
+    }
+    
+    if (!track) {
+        track = Store.currentTrack;
+    }
+    
+    if (track) {
+        showAddToPlaylistModal(track);
+    } else {
+        showToast("No active track found to add to playlist");
+    }
+}
+
+function showAddToPlaylistModal(track) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    
+    let playlistsHtml = '';
+    if (Store.playlists.length === 0) {
+        playlistsHtml = `<div class="empty-state" style="padding: 1rem 0;">
+            <p style="margin-bottom: 1rem; color: var(--text-muted);">You don't have any playlists yet.</p>
+            <button class="action-btn primary" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create Playlist</button>
+        </div>`;
+    } else {
+        playlistsHtml = '<div class="modal-playlists-list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0;">';
+        Store.playlists.forEach(pl => {
+            const hasSong = pl.tracks.some(t => t.id === track.id);
+            playlistsHtml += `<div class="modal-playlist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer;" onclick="event.stopPropagation(); toggleSongInPlaylist('${pl.id}', ${escapeAttr(JSON.stringify(track))}, this)">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 500; font-size: 0.95rem; color: var(--text-primary);">${escapeHtml(pl.name)}</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">${pl.tracks.length} songs</span>
+                </div>
+                <span class="playlist-check-indicator" style="font-size: 1.1rem; color: ${hasSong ? '#a78bfa' : 'transparent'};">✓</span>
+            </div>`;
+        });
+        playlistsHtml += '</div>';
+        playlistsHtml += `<button class="action-btn secondary" style="width: 100%; margin-top: 8px;" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create New Playlist</button>`;
+    }
+    
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width: 340px; width: 90%; text-align: left;">
+        <h3 style="margin-top: 0; margin-bottom: 12px;">Add to Playlist</h3>
+        <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+            <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" style="width: 48px; height: 48px; border-radius: var(--radius-xs); object-fit: cover;">
+            <div style="display: flex; flex-direction: column; overflow: hidden; white-space: nowrap;">
+                <span style="font-weight: 600; font-size: 0.95rem; text-overflow: ellipsis; overflow: hidden; color: var(--text-primary);">${escapeHtml(track.title || '')}</span>
+                <span style="font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;">${escapeHtml(track.channel?.name || '')}</span>
+            </div>
+        </div>
+        ${playlistsHtml}
+        <div class="modal-actions" style="margin-top: 16px; justify-content: flex-end;">
+            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
+        </div>
+    </div>`;
+}
+
+function toggleSongInPlaylist(playlistId, track, el) {
+    const pl = Store.playlists.find(p => p.id === playlistId);
+    if (!pl) return;
+    const hasSong = pl.tracks.some(t => t.id === track.id);
+    const indicator = el.querySelector('.playlist-check-indicator');
+    
+    if (hasSong) {
+        Store.removeFromPlaylist(playlistId, track.id);
+        if (indicator) indicator.style.color = 'transparent';
+        showToast(`Removed from ${pl.name}`);
+    } else {
+        Store.addToPlaylist(playlistId, track);
+        if (indicator) indicator.style.color = '#a78bfa';
+        showToast(`Added to ${pl.name}`);
+    }
+}
+
+function showCreatePlaylistAndThenAdd(track) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()">
+        <h3>Create Playlist</h3>
+        <form onsubmit="event.preventDefault(); createPlaylistAndAddSong(${escapeAttr(JSON.stringify(track))})">
+            <input class="modal-input" id="playlist-name-input" placeholder="Playlist name..." autofocus>
+            <div class="modal-actions">
+                <button type="button" class="modal-btn cancel" onclick="showAddToPlaylistModal(${escapeAttr(JSON.stringify(track))})">Back</button>
+                <button type="submit" class="modal-btn create">Create & Add</button>
+            </div>
+        </form>
+    </div>`;
+    setTimeout(() => document.getElementById('playlist-name-input')?.focus(), 100);
+}
+
+function createPlaylistAndAddSong(track) {
+    const input = document.getElementById('playlist-name-input');
+    const name = input ? input.value.trim() : '';
+    if (!name) return;
+    
+    const plId = Store.createPlaylist(name);
+    Store.addToPlaylist(plId, track);
+    
+    closeModal();
+    showToast(`Created & added to ${name}`);
 }
