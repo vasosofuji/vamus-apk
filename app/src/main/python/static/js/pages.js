@@ -114,9 +114,23 @@ function renderHomePage(container) {
         html += '</div></section>';
     }
     
-    // AI Recommendations
-    const uniqueArtists = [...new Set(Store.recentlyPlayed.map(t => t.channel?.name).filter(Boolean))].slice(0, 5);
-    if (uniqueArtists.length > 0) {
+    // Recommendations — seeded from the user's listening history + library.
+    // The default "Recommended For You" feed needs no API key; "AI Picks" only
+    // appears when the user has added their own Gemini key in Settings.
+    const seedTracks = [...Store.recentlyPlayed, ...Store.likedSongs];
+    const seedIds = [...new Set(seedTracks.map(t => t.id).filter(Boolean))].slice(0, 5);
+    const uniqueArtists = [...new Set(seedTracks.map(t => t.channel?.name).filter(Boolean))].slice(0, 5);
+    const hasSeeds = seedIds.length > 0 || uniqueArtists.length > 0;
+    const geminiKey = (localStorage.getItem('geminiApiKey') || '').trim();
+
+    if (hasSeeds) {
+        html += `<section style="margin-top:2rem" id="recs-section">
+            <h2 class="section-title">Recommended For You</h2>
+            <div id="recs-container"><div class="page-loader"><div class="spinner"></div><span>Finding songs you'll love...</span></div></div>
+        </section>`;
+    }
+
+    if (hasSeeds && geminiKey) {
         html += `<section style="margin-top:2rem" id="ai-recs-section">
             <h2 class="section-title">AI Picks For You</h2>
             <div id="ai-recs-container"><div class="page-loader"><div class="spinner"></div><span>Analyzing your taste...</span></div></div>
@@ -142,20 +156,43 @@ function renderHomePage(container) {
     html += '</div>';
     container.innerHTML = html;
     
-    // Fetch AI recs async
-    if (uniqueArtists.length > 0) {
-        fetch(getApiUrl(`/api/ai-recommend?artistNames=${encodeURIComponent(uniqueArtists.join(','))}`))
+    // Fetch default (no-key) recommendations async
+    if (hasSeeds) {
+        const params = new URLSearchParams();
+        if (seedIds.length) params.set('seedIds', seedIds.join(','));
+        if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
+        fetch(getApiUrl(`/api/home-recommendations?${params.toString()}`))
+            .then(r => r.json())
+            .then(tracks => {
+                const c = document.getElementById('recs-container');
+                if (!c) return;
+                if (tracks && tracks.length > 0) {
+                    renderTrackList(tracks, c);
+                } else {
+                    const s = document.getElementById('recs-section');
+                    if (s) s.remove();
+                }
+            }).catch(() => {
+                const s = document.getElementById('recs-section');
+                if (s) s.remove();
+            });
+    }
+
+    // Fetch AI recs async — only when the user has configured a Gemini key
+    if (hasSeeds && geminiKey && uniqueArtists.length > 0) {
+        fetch(getApiUrl(`/api/ai-recommend?artistNames=${encodeURIComponent(uniqueArtists.join(','))}&apiKey=${encodeURIComponent(geminiKey)}`))
             .then(r => r.json())
             .then(tracks => {
                 const recsContainer = document.getElementById('ai-recs-container');
                 if (recsContainer && tracks.length > 0) {
                     renderTrackList(tracks, recsContainer);
-                } else if (recsContainer) {
-                    recsContainer.innerHTML = '';
+                } else {
+                    const s = document.getElementById('ai-recs-section');
+                    if (s) s.remove();
                 }
             }).catch(() => {
-                const c = document.getElementById('ai-recs-container');
-                if (c) c.innerHTML = '';
+                const s = document.getElementById('ai-recs-section');
+                if (s) s.remove();
             });
     }
 }
@@ -486,8 +523,8 @@ function renderSettingsPage(container) {
     
     // Gemini API Key
     html += `<div class="settings-section">
-        <h3>🤖 Gemini API Key</h3>
-        <p>Enter your Google Gemini API key for AI-powered music recommendations.</p>
+        <h3>🤖 Gemini API Key <span style="font-size:0.75rem;font-weight:500;color:var(--text-secondary);vertical-align:middle">Optional</span></h3>
+        <p>Vamus already recommends music based on your playlists and listening history — no key needed. Add your own Google Gemini API key to also get an extra AI-powered "AI Picks For You" row on the home screen.</p>
         <input class="settings-input" type="password" id="gemini-key-input" value="${escapeHtml(geminiKey)}" placeholder="Enter API key...">
         <br><button class="action-btn primary" style="margin-top:0.5rem" onclick="saveGeminiKey()">Save Key</button>
         <span id="gemini-save-msg" style="margin-left:0.75rem;color:var(--success-color);font-size:0.85rem"></span>

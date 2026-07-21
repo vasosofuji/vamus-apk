@@ -1057,6 +1057,101 @@ def _basic_recommendations_fallback(artist_names):
     return results
 
 
+@app.route('/api/home-recommendations')
+def api_home_recommendations():
+    """Default, no-API-key recommendations for the home "For You" feed.
+
+    Mirrors how YouTube Music builds its home feed: seed off the tracks the user
+    has actually played and liked, then pull genre/style-similar songs from YT
+    Music's own radio algorithm (get_watch_playlist). Falls back to Piped artist
+    searches. Requires no Gemini key — this is what powers recommendations for
+    every user out of the box.
+    """
+    import random
+
+    seed_ids_raw = request.args.get('seedIds', '').strip()
+    artist_names_raw = request.args.get('artistNames', '').strip()
+
+    seed_ids = [s.strip() for s in seed_ids_raw.split(',') if s.strip()][:5]
+    artist_names = [n.strip() for n in artist_names_raw.split(',') if n.strip()][:5]
+
+    if not seed_ids and not artist_names:
+        return jsonify([])
+
+    results = []
+    seen_ids = set(seed_ids)
+
+    # --- Primary: YT Music radio seeded by the user's recent/liked tracks ---
+    try:
+        from ytmusicapi import YTMusic
+        yt = YTMusic()
+        for vid in seed_ids:
+            if len(results) >= 20:
+                break
+            try:
+                watch = yt.get_watch_playlist(videoId=vid, limit=8)
+            except Exception:
+                continue
+            for t in watch.get('tracks', []):
+                tvid = t.get('videoId')
+                if not tvid or tvid in seen_ids:
+                    continue
+                seen_ids.add(tvid)
+                artists = t.get('artists', [])
+                artist_name = artists[0].get('name') if artists else 'Unknown Artist'
+                artist_id = artists[0].get('id') if artists else None
+                thumb = ''
+                th = t.get('thumbnail')
+                if isinstance(th, list) and th:
+                    thumb = th[-1].get('url', '')
+                elif isinstance(th, dict):
+                    thumb = th.get('url', '')
+                results.append({
+                    'id': tvid,
+                    'title': t.get('title', ''),
+                    'url': f'https://music.youtube.com/watch?v={tvid}',
+                    'thumbnail': thumb,
+                    'durationRaw': t.get('length', '') or '',
+                    'durationInSec': t.get('duration_seconds') or 0,
+                    'artistId': artist_id,
+                    'channel': {'name': artist_name},
+                })
+                if len(results) >= 20:
+                    break
+    except Exception as e:
+        print("ytmusicapi home recommendations failed, falling back to Piped:", e)
+
+    # --- Fallback / top-up: Piped searches based on favourite artists ---
+    if len(results) < 8 and artist_names:
+        for name in artist_names:
+            if len(results) >= 20:
+                break
+            for query in (f'{name} mix', f'{name} songs'):
+                try:
+                    resp = http_requests.get(
+                        'https://api.piped.private.coffee/search',
+                        params={'q': query, 'filter': 'music_songs'},
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    items = resp.json().get('items', [])
+                except Exception:
+                    continue
+                for item in items:
+                    vid = extract_video_id(item.get('url', ''))
+                    if vid and vid not in seen_ids and item.get('duration', 0) > 0:
+                        seen_ids.add(vid)
+                        results.append(map_piped_item(item))
+                        if len(results) >= 20:
+                            break
+                if len(results) >= 20:
+                    break
+
+    # Reshuffle so the feed feels fresh on each visit (like YT Music's home).
+    random.shuffle(results)
+    return jsonify(results[:20])
+
+
 @app.route('/api/ai-recommend')
 def api_ai_recommend():
     artist_names_raw = request.args.get('artistNames', '').strip()
@@ -1065,11 +1160,14 @@ def api_ai_recommend():
 
     artist_names = [n.strip() for n in artist_names_raw.split(',') if n.strip()]
 
-    api_key = os.environ.get('GEMINI_API_KEY', '').strip()
+    # Prefer the user's own key (entered in Settings and passed by the client).
+    # Fall back to a server-side key only if one is configured in the
+    # environment. When neither exists, AI recommendations are simply off — the
+    # default /api/home-recommendations feed covers everyone without a key.
+    api_key = request.args.get('apiKey', '').strip() or os.environ.get('GEMINI_API_KEY', '').strip()
 
     if not api_key:
-        results = _basic_recommendations_fallback(artist_names)
-        return jsonify(results)
+        return jsonify([])
 
     try:
         prompt = (
