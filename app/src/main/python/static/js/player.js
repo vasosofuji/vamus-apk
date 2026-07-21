@@ -541,10 +541,14 @@ const Player = {
             duration = active.duration || 0;
         }
         
+        if (window._isScrubbing) return;
+        
         const pct = duration > 0 ? (current / duration) * 100 : 0;
         
         const fill = document.getElementById('progress-fill');
         if (fill) fill.style.width = pct + '%';
+        const thumb = document.getElementById('progress-thumb');
+        if (thumb) thumb.style.left = pct + '%';
         
         const miniFill = document.getElementById('mini-progress-fill');
         if (miniFill) miniFill.style.width = pct + '%';
@@ -558,6 +562,8 @@ const Player = {
         // Update mobile player progress too if visible
         const mobFill = document.getElementById('mobile-progress-fill');
         if (mobFill) mobFill.style.width = pct + '%';
+        const mobThumb = document.getElementById('mobile-progress-thumb');
+        if (mobThumb) mobThumb.style.left = pct + '%';
         const mobCur = document.getElementById('mobile-current-time');
         if (mobCur) mobCur.textContent = formatTime(current);
         const mobTot = document.getElementById('mobile-total-time');

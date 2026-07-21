@@ -352,12 +352,35 @@ a { color: inherit; text-decoration: none; }
 .progress-track {
   flex: 1; height: 4px; background: var(--border-color);
   border-radius: 2px; cursor: pointer; position: relative;
+  transition: height 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .progress-fill {
   height: 100%; background: var(--primary-color);
-  border-radius: 2px; width: 0%; transition: width 0.1s linear;
+  border-radius: 2px; width: 0%; transition: width 0.1s linear, background-color 0.2s;
+}
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s;
+  pointer-events: none;
+}
+.progress-track:hover .progress-thumb,
+.progress-track.scrubbing .progress-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+.progress-track:hover,
+.progress-track.scrubbing {
+  height: 6px;
 }
 .progress-track:hover .progress-fill { background: var(--primary-hover); }
+.progress-track.scrubbing .progress-fill { background: #ffffff !important; }
 .time-label { font-size: 0.75rem; color: var(--text-muted); min-width: 35px; }
 
 .player-right {

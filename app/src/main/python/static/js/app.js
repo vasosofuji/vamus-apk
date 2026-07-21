@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupLyricsContainer();
     setupSwipeToQueue();
     setupLikeButtonLongPress();
+    makeScrubber('progress-track', 'progress-fill', 'progress-thumb', 'current-time');
     
     // Listen for store changes
     Store.on('playlistsChanged', () => {
@@ -345,8 +346,9 @@ function showMobilePlayer() {
             </div>
             
             <div class="mobile-player-progress">
-                <div class="progress-track" onclick="Player.seekTo(event)">
+                <div class="progress-track" id="mobile-progress-track">
                     <div class="progress-fill" id="mobile-progress-fill" style="width: ${pct}%"></div>
+                    <div class="progress-thumb" id="mobile-progress-thumb" style="left: ${pct}%"></div>
                 </div>
                 <div class="mobile-time-labels">
                     <span id="mobile-current-time">${formatTime(current)}</span>
@@ -380,6 +382,11 @@ function showMobilePlayer() {
             </div>
         </div>
     `;
+    
+    setTimeout(() => {
+        makeScrubber('mobile-progress-track', 'mobile-progress-fill', 'mobile-progress-thumb', 'mobile-current-time');
+    }, 50);
+}
 }
 
 function openMobileMenu(event) {
@@ -866,6 +873,105 @@ function performFloatingSearch() {
         navigate('/search?q=' + encodeURIComponent(query));
         collapseFloatingSearch();
     }
+}
+
+// Scrubber playhead dragging logic
+window._isScrubbing = false;
+
+window.seekToMs = function(pos) {
+    if (typeof Player !== 'undefined') {
+        Player.seekToTime(pos / 1000);
+    }
+};
+
+function makeScrubber(trackId, fillId, thumbId, currentTextId) {
+    const track = document.getElementById(trackId);
+    if (!track) return;
+    
+    let isDragging = false;
+    
+    const getPercent = (clientX) => {
+        const rect = track.getBoundingClientRect();
+        const val = (clientX - rect.left) / rect.width;
+        return Math.max(0, Math.min(1, val));
+    };
+    
+    const updateUI = (pct) => {
+        const fill = document.getElementById(fillId);
+        const thumb = document.getElementById(thumbId);
+        if (fill) fill.style.width = (pct * 100) + '%';
+        if (thumb) thumb.style.left = (pct * 100) + '%';
+        
+        const duration = window.AndroidMediaSession && typeof window.AndroidMediaSession.getDuration === 'function'
+            ? window.AndroidMediaSession.getDuration() / 1000
+            : Player.audio.duration || 0;
+            
+        const curText = document.getElementById(currentTextId);
+        if (curText && duration > 0) {
+            curText.textContent = formatTime(pct * duration);
+        }
+    };
+    
+    const start = (clientX) => {
+        isDragging = true;
+        window._isScrubbing = true;
+        track.classList.add('scrubbing');
+        const pct = getPercent(clientX);
+        updateUI(pct);
+    };
+    
+    const move = (clientX) => {
+        if (!isDragging) return;
+        const pct = getPercent(clientX);
+        updateUI(pct);
+    };
+    
+    const end = (clientX) => {
+        if (!isDragging) return;
+        isDragging = false;
+        window._isScrubbing = false;
+        track.classList.remove('scrubbing');
+        
+        const pct = getPercent(clientX);
+        const duration = window.AndroidMediaSession && typeof window.AndroidMediaSession.getDuration === 'function'
+            ? window.AndroidMediaSession.getDuration() / 1000
+            : Player.audio.duration || 0;
+            
+        if (duration > 0) {
+            Player.seekToTime(pct * duration);
+        }
+    };
+    
+    // Mouse Events
+    track.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        start(e.clientX);
+        
+        const onMouseMove = (moveEvent) => move(moveEvent.clientX);
+        const onMouseUp = (upEvent) => {
+            end(upEvent.clientX);
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+    
+    // Touch Events
+    track.addEventListener('touchstart', (e) => {
+        start(e.touches[0].clientX);
+    }, { passive: true });
+    
+    track.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        move(e.touches[0].clientX);
+    }, { passive: true });
+    
+    track.addEventListener('touchend', (e) => {
+        if (!isDragging) return;
+        end(e.changedTouches[0].clientX);
+    });
 }
 
 // Like Button Long Press & Add to Playlist Modal

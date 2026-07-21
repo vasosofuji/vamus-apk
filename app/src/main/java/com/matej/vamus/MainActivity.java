@@ -196,7 +196,8 @@ public class MainActivity extends BridgeActivity {
                         PlaybackState.ACTION_PAUSE |
                         PlaybackState.ACTION_PLAY_PAUSE |
                         PlaybackState.ACTION_SKIP_TO_NEXT |
-                        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS |
+                        PlaybackState.ACTION_SEEK_TO
                 );
         // Initialize with a real STATE so the first notification we build is
         // valid enough for FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK on Android 14+.
@@ -208,6 +209,7 @@ public class MainActivity extends BridgeActivity {
             @Override public void onPause() { triggerJsEvent("togglePlay()"); }
             @Override public void onSkipToNext() { triggerJsEvent("playNext()"); }
             @Override public void onSkipToPrevious() { triggerJsEvent("playPrev()"); }
+            @Override public void onSeekTo(long pos) { triggerJsEvent("seekToMs(" + pos + ")"); }
         });
 
         mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
