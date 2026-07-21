@@ -30,6 +30,18 @@ android {
             }
         }
     }
+
+    sourceSets {
+        main {
+            python {
+                // Never package secrets (e.g. a developer's local Gemini API
+                // key) into the APK. AI recommendations are opt-in via a key the
+                // user enters in Settings, so no .env is needed at runtime.
+                exclude "**/.env"
+                exclude "**/.env.*"
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
