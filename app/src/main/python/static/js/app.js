@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupMobilePlayerExpand();
     setupBackButton();
     setupLyricsContainer();
+    setupSwipeToQueue();
     
     // Listen for store changes
     Store.on('playlistsChanged', () => {
@@ -17,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (Router.currentRoute === '/library' || Router.currentRoute.startsWith('/playlist/')) {
             Router.render(Router.currentRoute);
         }
+    });
+
+    Store.on('queueChanged', () => {
+        renderQueue();
     });
     
     Store.on('trackChanged', () => {
@@ -498,6 +503,12 @@ function handleBackButton() {
         toggleLyrics();
         return;
     }
+    // Priority 2.5: close queue overlay
+    const queue = document.getElementById('queue-overlay');
+    if (queue && queue.style.display !== 'none' && queue.style.display !== '') {
+        toggleQueue();
+        return;
+    }
     // Priority 3: close fullscreen mobile player
     const mobilePlayer = document.getElementById('mobile-player-overlay');
     if (mobilePlayer && mobilePlayer.style.display !== 'none' && mobilePlayer.style.display !== '') {
@@ -543,4 +554,221 @@ function seekFromLyrics(seconds) {
     window._userScrollingLyrics = false;
     clearTimeout(window._lyricsScrollTimeout);
     Player.seekToTime(seconds);
+}
+
+function setupSwipeToQueue() {
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let isSwiping = false;
+    let activeRowContent = null;
+    let activeTrackData = null;
+    let swipeBg = null;
+    
+    document.addEventListener('touchstart', (e) => {
+        const row = e.target.closest('.track-row');
+        if (!row) return;
+        
+        activeRowContent = row.querySelector('.track-row-content');
+        if (!activeRowContent) return;
+        
+        activeTrackData = JSON.parse(row.getAttribute('data-track') || 'null');
+        swipeBg = row.querySelector('.swipe-bg-queue');
+        
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        isSwiping = false;
+        activeRowContent.style.transition = 'none';
+        if (swipeBg) swipeBg.style.opacity = '1';
+    }, { passive: true });
+    
+    document.addEventListener('touchmove', (e) => {
+        if (!activeRowContent) return;
+        
+        const diffX = e.touches[0].clientX - startX;
+        const diffY = e.touches[0].clientY - startY;
+        
+        if (!isSwiping) {
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
+                isSwiping = true;
+            } else if (Math.abs(diffY) > Math.abs(diffX)) {
+                activeRowContent = null;
+                return;
+            }
+        }
+        
+        if (isSwiping) {
+            if (diffX < 0) {
+                if (e.cancelable) e.preventDefault();
+                let dragX = diffX;
+                if (dragX < -150) {
+                    dragX = -150 + (dragX + 150) * 0.2;
+                }
+                activeRowContent.style.transform = `translateX(${dragX}px)`;
+                if (swipeBg) {
+                    const ratio = Math.min(Math.abs(diffX) / 80, 1);
+                    swipeBg.style.opacity = ratio.toString();
+                }
+            } else {
+                activeRowContent.style.transform = 'translateX(0px)';
+            }
+        }
+    }, { passive: false });
+    
+    document.addEventListener('touchend', (e) => {
+        if (!activeRowContent) return;
+        
+        const diffX = e.changedTouches[0].clientX - startX;
+        activeRowContent.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+        
+        if (isSwiping && diffX < -80 && activeTrackData) {
+            activeRowContent.style.transform = 'translateX(-100%)';
+            addToPlayerQueue(activeTrackData);
+            setTimeout(() => {
+                activeRowContent.style.transform = 'translateX(0px)';
+            }, 300);
+        } else {
+            activeRowContent.style.transform = 'translateX(0px)';
+        }
+        
+        activeRowContent = null;
+        activeTrackData = null;
+    }, { passive: true });
+}
+
+function addToPlayerQueue(track) {
+    Store.queue = [...Store.queue, track];
+    Store.emit('queueChanged');
+    showToast(`Added to Queue`);
+    syncNativeQueue();
+}
+
+function showToast(message) {
+    let el = document.getElementById('toast');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'toast';
+        el.className = 'toast';
+        document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(window._toastTimeout);
+    window._toastTimeout = setTimeout(() => {
+        el.classList.remove('show');
+    }, 2000);
+}
+
+function toggleQueue() {
+    const overlay = document.getElementById('queue-overlay');
+    if (!overlay) return;
+    
+    if (overlay.style.display === 'none' || !overlay.style.display) {
+        overlay.style.display = 'flex';
+        renderQueue();
+    } else {
+        overlay.style.display = 'none';
+    }
+}
+
+function renderQueue() {
+    const container = document.getElementById('queue-container');
+    if (!container) return;
+    
+    let html = `
+        <div class="queue-header">
+            <h2>Play Queue</h2>
+            ${Store.queue.length > 0 ? `<button class="clear-queue-btn" onclick="clearPlayerQueue()">Clear All</button>` : ''}
+        </div>
+    `;
+    
+    // Now Playing
+    if (Store.currentTrack) {
+        html += `
+            <div class="queue-section">
+                <h3>Now Playing</h3>
+                <div class="queue-item playing">
+                    <img class="queue-item-thumb" src="${Store.currentTrack.thumbnail || FALLBACK_IMG}">
+                    <div class="queue-item-info">
+                        <div class="queue-item-title">${escapeHtml(Store.currentTrack.title)}</div>
+                        <div class="queue-item-artist">${escapeHtml(Store.currentTrack.channel?.name || '')}</div>
+                    </div>
+                    <span class="queue-playing-icon">♫</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Next Up
+    html += `<div class="queue-section">
+        <h3>Next Up</h3>
+    `;
+    
+    if (Store.queue.length === 0) {
+        html += `<div class="empty-state"><p style="color:var(--text-secondary)">Queue is empty</p></div>`;
+    } else {
+        html += `<div class="queue-list">`;
+        Store.queue.forEach((track, i) => {
+            html += `
+                <div class="queue-item">
+                    <img class="queue-item-thumb" src="${track.thumbnail || FALLBACK_IMG}">
+                    <div class="queue-item-info" onclick="playQueueTrack(${i})">
+                        <div class="queue-item-title">${escapeHtml(track.title)}</div>
+                        <div class="queue-item-artist">${escapeHtml(track.channel?.name || '')}</div>
+                    </div>
+                    <div class="queue-item-actions">
+                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
+                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, 1)" ${i === Store.queue.length - 1 ? 'disabled' : ''}>↓</button>
+                        <button class="queue-action-btn remove" onclick="removeQueueItem(${i})">✕</button>
+                    </div>
+                </div>
+            `;
+        });
+        html += `</div>`;
+    }
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+function clearPlayerQueue() {
+    Store.queue = [];
+    Store.emit('queueChanged');
+    renderQueue();
+    syncNativeQueue();
+}
+
+function moveQueueItem(index, direction) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= Store.queue.length) return;
+    
+    const temp = Store.queue[index];
+    Store.queue[index] = Store.queue[targetIndex];
+    Store.queue[targetIndex] = temp;
+    
+    Store.emit('queueChanged');
+    renderQueue();
+    syncNativeQueue();
+}
+
+function removeQueueItem(index) {
+    Store.queue = Store.queue.filter((_, i) => i !== index);
+    Store.emit('queueChanged');
+    renderQueue();
+    syncNativeQueue();
+}
+
+function playQueueTrack(index) {
+    const track = Store.queue[index];
+    const newQueue = Store.queue.slice(index);
+    Player.playTrack(track, newQueue);
+    toggleQueue();
+}
+
+function syncNativeQueue() {
+    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
+        const repeat = Store.repeat || 'none';
+        const shuffle = Store.shuffle || false;
+        const curId = Store.currentTrack ? Store.currentTrack.id : null;
+        window.AndroidMediaSession.setPlaybackContext(JSON.stringify(Store.queue), curId, repeat, shuffle);
+    }
 }

@@ -18,6 +18,15 @@ const Router = {
         const content = document.getElementById('page-content');
         if (!content) return;
         
+        const topBar = document.getElementById('top-bar');
+        if (topBar) {
+            if (path === '/search' || path.startsWith('/search?')) {
+                topBar.style.display = 'block';
+            } else {
+                topBar.style.display = 'none';
+            }
+        }
+        
         // Parse route
         if (path === '/' || path === '') {
             renderHomePage(content);
