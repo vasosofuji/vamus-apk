@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C C:/Users/matej/Desktop/music/android show --stat 87422e3)",
+      "Bash(git -C C:/Users/matej/Desktop/music/android log --oneline -30 -- app/src/main/)",
+      "Bash(git -C C:/Users/matej/Desktop/music/android log --all --oneline -30 -- app/src/main/java/)",
+      "Bash(git -C C:/Users/matej/Desktop/music/android log --all --oneline)"
+    ]
+  }
+}

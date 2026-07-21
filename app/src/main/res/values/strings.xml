@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vamus</string>
+    <string name="title_activity_main">Vamus</string>
+    <string name="package_name">com.matej.vamus</string>
+    <string name="custom_url_scheme">com.matej.vamus</string>
+</resources>
