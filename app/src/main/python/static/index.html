@@ -8,6 +8,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Global Floating Search Widget -->
+    <div id="floating-search-container" class="floating-search-container">
+        <button class="floating-search-icon-btn" onclick="toggleFloatingSearch(event)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </button>
+        <div class="floating-search-input-wrap">
+            <input type="text" id="floating-search-input" placeholder="Search songs, artists..." autocomplete="off" oninput="handleFloatingSearchInput(event)" onkeydown="if(event.key === 'Enter') { performFloatingSearch(); event.preventDefault(); }">
+            <button id="floating-search-clear-btn" class="floating-search-clear-btn" onclick="clearFloatingSearch(event)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+    </div>
+
     <div class="app-container" id="app">
 
 

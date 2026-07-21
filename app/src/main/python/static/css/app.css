@@ -764,6 +764,113 @@ a { color: inherit; text-decoration: none; }
 .chip:focus { outline: none; }
 .chip.active { background: var(--text-primary); color: var(--bg-color); border-color: var(--text-primary); }
 
+/* Floating search bubble */
+.floating-search-container {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.floating-search-container.expanded {
+  width: calc(100% - 24px);
+  right: 12px;
+  left: 12px;
+  background: rgba(18, 18, 18, 0.95);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.floating-search-icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  z-index: 2;
+  transition: transform 0.2s;
+  outline: none;
+}
+.floating-search-icon-btn:active {
+  transform: scale(0.9);
+}
+
+.floating-search-input-wrap {
+  flex: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  height: 100%;
+  min-width: 0;
+}
+
+.floating-search-container.expanded .floating-search-input-wrap {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.3s ease 0.15s;
+}
+
+.floating-search-input-wrap input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  height: 100%;
+  padding: 0;
+  min-width: 0;
+}
+.floating-search-input-wrap input::placeholder {
+  color: var(--text-muted);
+}
+
+.floating-search-clear-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  margin-left: 4px;
+  flex-shrink: 0;
+  outline: none;
+}
+.floating-search-clear-btn.show {
+  display: flex;
+}
+.floating-search-clear-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
 /* =============================================
    RESPONSIVE — MOBILE (max-width: 600px)
    ============================================= */

@@ -786,3 +786,83 @@ function updateTrackRowsPlayingState() {
         }
     });
 }
+
+/* Floating Search Widget Controllers */
+function toggleFloatingSearch(event) {
+    if (event) event.stopPropagation();
+    const container = document.getElementById('floating-search-container');
+    const input = document.getElementById('floating-search-input');
+    if (!container || !input) return;
+    
+    if (container.classList.contains('expanded')) {
+        const query = input.value.trim();
+        if (query) {
+            performFloatingSearch();
+        } else {
+            collapseFloatingSearch();
+        }
+    } else {
+        container.classList.add('expanded');
+        setTimeout(() => input.focus(), 150);
+        
+        // Listen for click away to close
+        document.addEventListener('click', handleFloatingSearchClickAway);
+        
+        // Listen for scroll on main content container to close
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.addEventListener('scroll', collapseFloatingSearch, { passive: true });
+        }
+    }
+}
+
+function collapseFloatingSearch() {
+    const container = document.getElementById('floating-search-container');
+    if (container && container.classList.contains('expanded')) {
+        container.classList.remove('expanded');
+        document.removeEventListener('click', handleFloatingSearchClickAway);
+        
+        const mainContent = document.querySelector('.main-content');
+        if (mainContent) {
+            mainContent.removeEventListener('scroll', collapseFloatingSearch);
+        }
+    }
+}
+
+function handleFloatingSearchClickAway(event) {
+    const container = document.getElementById('floating-search-container');
+    if (container && !container.contains(event.target)) {
+        collapseFloatingSearch();
+    }
+}
+
+function handleFloatingSearchInput(event) {
+    const input = event.target;
+    const clearBtn = document.getElementById('floating-search-clear-btn');
+    if (clearBtn) {
+        clearBtn.classList.toggle('show', input.value.length > 0);
+    }
+}
+
+function clearFloatingSearch(event) {
+    if (event) event.stopPropagation();
+    const input = document.getElementById('floating-search-input');
+    const clearBtn = document.getElementById('floating-search-clear-btn');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    if (clearBtn) {
+        clearBtn.classList.remove('show');
+    }
+}
+
+function performFloatingSearch() {
+    const input = document.getElementById('floating-search-input');
+    if (!input) return;
+    const query = input.value.trim();
+    if (query) {
+        navigate('/search?q=' + encodeURIComponent(query));
+        collapseFloatingSearch();
+    }
+}
