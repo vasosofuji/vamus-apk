@@ -25,11 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     Store.on('trackChanged', () => {
-        // Re-render if on a page that shows playing state
-        const route = Router.currentRoute;
-        if (route === '/liked' || route.startsWith('/playlist/') || route.startsWith('/search')) {
-            Router.render(route);
-        }
+        // Simply update playing state class on track rows in DOM
+        updateTrackRowsPlayingState();
     });
 });
 
@@ -762,4 +759,30 @@ function playQueueTrack(index) {
     const newQueue = Store.queue.slice(index);
     Player.playTrack(track, newQueue);
     toggleQueue();
+}
+
+function updateTrackRowsPlayingState() {
+    const rows = document.querySelectorAll('.track-row');
+    rows.forEach((row) => {
+        const trackDataAttr = row.getAttribute('data-track');
+        if (!trackDataAttr) return;
+        try {
+            const track = JSON.parse(trackDataAttr);
+            const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
+            
+            row.classList.toggle('playing', isPlaying);
+            
+            const idxEl = row.querySelector('.col-index');
+            if (idxEl) {
+                if (isPlaying) {
+                    idxEl.textContent = '♫';
+                } else {
+                    const origIdx = row.getAttribute('data-index') || '1';
+                    idxEl.textContent = origIdx;
+                }
+            }
+        } catch (e) {
+            console.error('Error updating row playing state:', e);
+        }
+    });
 }

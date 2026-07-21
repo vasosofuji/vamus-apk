@@ -43,17 +43,17 @@ function renderTrackList(tracks, container, options = {}) {
     tracks.forEach((track, i) => {
         const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
         const liked = Store.isLiked(track.id);
-        html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" style="animation-delay:${i * 0.03}s" data-track="${escapeAttr(JSON.stringify(track))}">
+        html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" style="animation-delay:${i * 0.03}s" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${escapeAttr(JSON.stringify(tracks))})">
-                <span class="col-index">${showIndex ? i + 1 : (isPlaying ? '♫' : i + 1)}</span>
+                <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
                 <div class="col-title">
                     <img class="row-thumb" src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
                     <span class="row-name">${escapeHtml(track.title || '')}</span>
                 </div>
                 <div class="col-artist"><a href="#/artist/${encodeURIComponent(track.artistId || track.channel?.name || '')}" onclick="event.stopPropagation()">${escapeHtml(track.channel?.name || '')}</a></div>
                 <div class="col-actions">
-                    <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); Router.render(Router.currentRoute); Player.updatePlayerUI();">${liked ? ICONS.heartFilled : ICONS.heart}</button>
+                    <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
                 <span class="col-time">${track.durationRaw || ''}</span>
