@@ -126,7 +126,7 @@ function renderHomePage(container) {
     // Genres
     html += '<section style="margin-top:2rem"><h2 class="section-title">Explore Genres</h2><div class="genre-grid">';
     GENRES.forEach(g => {
-        html += `<div class="genre-card" style="background:${g.color}" onclick="navigate('/search?q=${encodeURIComponent(g.name)}')">${g.name}</div>`;
+        html += `<div class="genre-card" style="background:${g.color}" onclick="navigate('/search?q=${encodeURIComponent(g.name)}&category=true')">${g.name}</div>`;
     });
     html += '</div></section>';
     
@@ -165,20 +165,25 @@ function renderSearchPage(container, path) {
     const params = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
     const query = params.get('q') || '';
     const type = params.get('type') || 'songs';
+    const isCategory = params.get('category') === 'true';
     
     let html = '<div class="animate-fade-up">';
     
     // Mobile search input
     html += `<div style="margin-bottom:1rem;display:none" class="mobile-search-inline">
         <form onsubmit="event.preventDefault(); navigate('/search?q='+encodeURIComponent(document.getElementById('mobile-search-input').value))">
-            <input id="mobile-search-input" type="text" value="${escapeHtml(query)}" placeholder="Search songs, artists..." style="width:100%;padding:0.6rem 1rem;background:rgba(255,255,255,0.07);border:1px solid var(--border-color);border-radius:var(--radius-full);color:var(--text-primary);font-size:0.9rem;outline:none">
+            <input id="mobile-search-input" type="text" value="${escapeHtml(isCategory ? '' : query)}" placeholder="Search songs, artists..." style="width:100%;padding:0.6rem 1rem;background:rgba(255,255,255,0.07);border:1px solid var(--border-color);border-radius:var(--radius-full);color:var(--text-primary);font-size:0.9rem;outline:none">
         </form>
     </div>`;
     
+    if (isCategory) {
+        html += `<h1 style="margin: 0.5rem 0 1.2rem 0; font-size: 2rem; font-weight: 700; color: var(--text-primary);">${escapeHtml(query)}</h1>`;
+    }
+    
     // Tabs
     html += '<div class="chip-tabs">';
-    html += `<button class="chip ${type === 'songs' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=songs')">Songs</button>`;
-    html += `<button class="chip ${type === 'artists' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=artists')">Artists</button>`;
+    html += `<button class="chip ${type === 'songs' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=songs${isCategory ? '&category=true' : ''}')">Songs</button>`;
+    html += `<button class="chip ${type === 'artists' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=artists${isCategory ? '&category=true' : ''}')">Artists</button>`;
     html += '</div>';
     
     html += '<div id="search-results"></div>';
@@ -187,8 +192,18 @@ function renderSearchPage(container, path) {
     
     // Sync search input
     const searchInput = document.getElementById('search-input');
-    if (searchInput && searchInput.value !== query) {
-        searchInput.value = query;
+    if (searchInput) {
+        searchInput.value = isCategory ? '' : query;
+    }
+    
+    // Sync global floating search input
+    const floatingSearchInput = document.getElementById('floating-search-input');
+    if (floatingSearchInput) {
+        floatingSearchInput.value = isCategory ? '' : query;
+        const clearBtn = document.getElementById('floating-search-clear-btn');
+        if (clearBtn) {
+            clearBtn.classList.toggle('show', floatingSearchInput.value.length > 0);
+        }
     }
     
     if (!query) {
