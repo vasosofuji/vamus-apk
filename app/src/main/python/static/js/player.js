@@ -46,6 +46,9 @@ const Player = {
         
         // Start progress polling
         this.progressTimer = setInterval(() => this.updateProgress(), 250);
+        
+        // Initial sync of playback context (like repeat/shuffle restored from localStorage)
+        this._pushNextTrackToNative();
     },
     
     // -----------------------------------------------------------------------

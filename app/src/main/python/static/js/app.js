@@ -640,7 +640,7 @@ function addToPlayerQueue(track) {
     Store.queue = [...Store.queue, track];
     Store.emit('queueChanged');
     showToast(`Added to Queue`);
-    syncNativeQueue();
+    Player._pushNextTrackToNative();
 }
 
 function showToast(message) {
@@ -734,7 +734,7 @@ function clearPlayerQueue() {
     Store.queue = [];
     Store.emit('queueChanged');
     renderQueue();
-    syncNativeQueue();
+    Player._pushNextTrackToNative();
 }
 
 function moveQueueItem(index, direction) {
@@ -747,14 +747,14 @@ function moveQueueItem(index, direction) {
     
     Store.emit('queueChanged');
     renderQueue();
-    syncNativeQueue();
+    Player._pushNextTrackToNative();
 }
 
 function removeQueueItem(index) {
     Store.queue = Store.queue.filter((_, i) => i !== index);
     Store.emit('queueChanged');
     renderQueue();
-    syncNativeQueue();
+    Player._pushNextTrackToNative();
 }
 
 function playQueueTrack(index) {
@@ -762,13 +762,4 @@ function playQueueTrack(index) {
     const newQueue = Store.queue.slice(index);
     Player.playTrack(track, newQueue);
     toggleQueue();
-}
-
-function syncNativeQueue() {
-    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
-        const repeat = Store.repeat || 'none';
-        const shuffle = Store.shuffle || false;
-        const curId = Store.currentTrack ? Store.currentTrack.id : null;
-        window.AndroidMediaSession.setPlaybackContext(JSON.stringify(Store.queue), curId, repeat, shuffle);
-    }
 }
