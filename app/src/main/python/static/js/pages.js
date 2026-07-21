@@ -235,7 +235,7 @@ function renderLibraryPage(container) {
     
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
         <h2 class="section-title" style="margin:0">Playlists</h2>
-        <button class="action-btn primary" onclick="showCreatePlaylist()">+ Create Playlist</button>
+        ${Store.playlists.length > 0 ? `<button class="action-btn primary" onclick="showCreatePlaylist()">+ Create Playlist</button>` : ''}
     </div>`;
     
     if (Store.playlists.length === 0) {
