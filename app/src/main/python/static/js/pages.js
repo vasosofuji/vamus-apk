@@ -24,7 +24,7 @@ const GENRES = [
 ];
 
 function renderTrackList(tracks, container, options = {}) {
-    const { showIndex = false, showRemove = false, onRemove = null } = options;
+    const { showIndex = false, showRemove = false, onRemove = null, singleTrackQueue = false } = options;
     if (!tracks || tracks.length === 0) {
         container.innerHTML = '<div class="empty-state"><h3>No tracks found</h3></div>';
         return;
@@ -45,7 +45,7 @@ function renderTrackList(tracks, container, options = {}) {
         const liked = Store.isLiked(track.id);
         html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" style="animation-delay:${i * 0.03}s" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
-            <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${escapeAttr(JSON.stringify(tracks))})">
+            <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
                 <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
                 <div class="col-title">
                     <img class="row-thumb" src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
@@ -105,7 +105,7 @@ function renderHomePage(container) {
     if (Store.recentlyPlayed.length > 0) {
         html += '<section style="margin-top:2rem"><h2 class="section-title">Recently Played</h2><div class="recent-grid">';
         Store.recentlyPlayed.slice(0, 20).forEach(track => {
-            html += `<div class="recent-card" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${escapeAttr(JSON.stringify(Store.recentlyPlayed))})">
+            html += `<div class="recent-card" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, [${escapeAttr(JSON.stringify(track))}])">
                 <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
                 <span class="recent-title">${escapeHtml(track.title || '')}</span>
                 <span class="recent-artist">${escapeHtml(track.channel?.name || '')}</span>
@@ -220,7 +220,7 @@ function renderSearchPage(container, path) {
                 grid += '</div>';
                 resultsEl.innerHTML = grid;
             } else {
-                renderTrackList(results, resultsEl);
+                renderTrackList(results, resultsEl, { singleTrackQueue: true });
             }
         }).catch(() => {
             const r = document.getElementById('search-results');
