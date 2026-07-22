@@ -279,22 +279,31 @@ function fetchLyrics() {
         });
 }
 
+let _lastActiveLyricIdx = -1;
+
 function parseLrc(lrcText) {
+    if (!lrcText) return [];
     const lines = [];
     lrcText.split('\n').forEach(line => {
-        const match = line.match(/\[(\d+):(\d+\.?\d*)\](.*)/);
-        if (match) {
-            const time = parseInt(match[1]) * 60 + parseFloat(match[2]);
-            const text = match[3].trim();
-            if (text) lines.push({ time, text });
+        const timeMatches = [...line.matchAll(/\[(\d{1,2}):(\d{1,2}(?:\.\d+)?)\]/g)];
+        const text = line.replace(/\[\d{1,2}:\d{1,2}(?:\.\d+)?\]/g, '').trim();
+        if (timeMatches.length > 0 && text) {
+            timeMatches.forEach(m => {
+                const minutes = parseInt(m[1], 10);
+                const seconds = parseFloat(m[2]);
+                const time = minutes * 60 + seconds;
+                lines.push({ time, text });
+            });
         }
     });
+    lines.sort((a, b) => a.time - b.time);
     return lines;
 }
 
 function renderLyricLines() {
     const container = document.getElementById('lyrics-container');
     if (!container) return;
+    _lastActiveLyricIdx = -1;
     container.innerHTML = window._lyricsData.map((line, i) => 
         `<div class="lyric-line" id="lyric-${i}" onclick="seekFromLyrics(${line.time})">${escapeHtml(line.text)}</div>`
     ).join('');
@@ -304,14 +313,17 @@ function updateLyricsHighlight(currentTime) {
     if (!window._lyricsData.length) return;
     let activeIdx = -1;
     for (let i = window._lyricsData.length - 1; i >= 0; i--) {
-        if (currentTime >= window._lyricsData[i].time) { activeIdx = i; break; }
+        if (currentTime >= window._lyricsData[i].time - 0.15) { activeIdx = i; break; }
     }
-    document.querySelectorAll('.lyric-line').forEach((el, i) => {
-        el.classList.toggle('active', i === activeIdx);
-    });
-    if (activeIdx >= 0 && !window._userScrollingLyrics) {
-        const el = document.getElementById(`lyric-${activeIdx}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (activeIdx !== _lastActiveLyricIdx) {
+        _lastActiveLyricIdx = activeIdx;
+        document.querySelectorAll('.lyric-line').forEach((el, i) => {
+            el.classList.toggle('active', i === activeIdx);
+        });
+        if (activeIdx >= 0 && !window._userScrollingLyrics) {
+            const el = document.getElementById(`lyric-${activeIdx}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     }
 }
 
@@ -1019,18 +1031,17 @@ function renderQueue() {
             <p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Similar songs will auto-play when your song ends</p>
         </div>`;
     } else {
-        html += `<div class="queue-list">`;
+        html += `<div class="queue-list" id="queue-drag-list">`;
         nextUpList.forEach((track, i) => {
             html += `
-                <div class="queue-item">
+                <div class="queue-item draggable" data-queue-index="${i}" draggable="true" style="user-select:none;-webkit-user-select:none;">
+                    <div class="queue-drag-handle" style="cursor:grab; padding: 0 8px 0 2px; color: var(--text-muted); font-size: 1.2rem; font-weight: 700; flex-shrink: 0; touch-action: none;">⋮⋮</div>
                     <img class="queue-item-thumb" src="${track.thumbnail || FALLBACK_IMG}">
                     <div class="queue-item-info" onclick="playQueueTrack(${i})">
                         <div class="queue-item-title">${escapeHtml(track.title)}</div>
                         <div class="queue-item-artist">${escapeHtml(track.channel?.name || '')}</div>
                     </div>
                     <div class="queue-item-actions">
-                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
-                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, 1)" ${i === nextUpList.length - 1 ? 'disabled' : ''}>↓</button>
                         <button class="queue-action-btn remove" onclick="removeQueueItem(${i})">✕</button>
                     </div>
                 </div>
@@ -1040,6 +1051,98 @@ function renderQueue() {
     }
     html += `</div>`;
     container.innerHTML = html;
+    setupQueueDragAndDrop();
+}
+
+let _draggedQueueIndex = null;
+
+function setupQueueDragAndDrop() {
+    const list = document.getElementById('queue-drag-list');
+    if (!list) return;
+    
+    const items = list.querySelectorAll('.queue-item.draggable');
+    
+    items.forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            _draggedQueueIndex = parseInt(item.getAttribute('data-queue-index'), 10);
+            item.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        item.addEventListener('dragend', () => {
+            item.style.opacity = '1';
+            items.forEach(el => el.style.borderTop = 'none');
+        });
+
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            item.style.borderTop = '2px solid var(--primary-color)';
+        });
+
+        item.addEventListener('dragleave', () => {
+            item.style.borderTop = 'none';
+        });
+
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            item.style.borderTop = 'none';
+            const dropIndex = parseInt(item.getAttribute('data-queue-index'), 10);
+            if (_draggedQueueIndex !== null && _draggedQueueIndex !== dropIndex) {
+                reorderQueueItems(_draggedQueueIndex, dropIndex);
+            }
+            _draggedQueueIndex = null;
+        });
+
+        // Touch Drag & Drop support for Android mobile screens
+        const handle = item.querySelector('.queue-drag-handle');
+        if (handle) {
+            let touchStartY = 0;
+            let touchIndex = -1;
+            
+            handle.addEventListener('touchstart', (e) => {
+                touchIndex = parseInt(item.getAttribute('data-queue-index'), 10);
+                touchStartY = e.touches[0].clientY;
+                item.style.opacity = '0.5';
+            }, { passive: true });
+
+            handle.addEventListener('touchmove', (e) => {
+                const currentY = e.touches[0].clientY;
+                const targetEl = document.elementFromPoint(e.touches[0].clientX, currentY);
+                const targetItem = targetEl ? targetEl.closest('.queue-item.draggable') : null;
+                items.forEach(el => el.style.borderTop = 'none');
+                if (targetItem) {
+                    targetItem.style.borderTop = '2px solid var(--primary-color)';
+                }
+            }, { passive: true });
+
+            handle.addEventListener('touchend', (e) => {
+                item.style.opacity = '1';
+                items.forEach(el => el.style.borderTop = 'none');
+                const lastTouch = e.changedTouches[0];
+                const targetEl = document.elementFromPoint(lastTouch.clientX, lastTouch.clientY);
+                const targetItem = targetEl ? targetEl.closest('.queue-item.draggable') : null;
+                if (targetItem && touchIndex !== -1) {
+                    const dropIndex = parseInt(targetItem.getAttribute('data-queue-index'), 10);
+                    if (touchIndex !== dropIndex) {
+                        reorderQueueItems(touchIndex, dropIndex);
+                    }
+                }
+                touchIndex = -1;
+            });
+        }
+    });
+}
+
+function reorderQueueItems(fromIndex, toIndex) {
+    if (!Store.queue || fromIndex < 0 || toIndex < 0) return;
+    const moved = Store.queue.splice(fromIndex, 1)[0];
+    if (moved) {
+        Store.queue.splice(toIndex, 0, moved);
+        Store.emit('queueChanged');
+        renderQueue();
+        Player._pushNextTrackToNative();
+    }
 }
 
 function clearPlayerQueue() {

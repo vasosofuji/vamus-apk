@@ -317,14 +317,14 @@ const Player = {
             return;
         }
         
-        // Explicit queue is empty — auto-play similar songs via radio if enabled
-        if (Store.autoplayEnabled && Store.currentTrack && !this._fetchingRadio) {
+        // Queue is empty — manual skip next fetches and plays a similar song immediately
+        if (Store.currentTrack && !this._fetchingRadio) {
             this._fetchRadioAndPlay();
         }
     },
     
     _fetchRadioAndPlay() {
-        if (this._fetchingRadio) return;
+        if (this._fetchingRadio || !Store.currentTrack) return;
         this._fetchingRadio = true;
         
         const track = Store.currentTrack;
@@ -345,11 +345,11 @@ const Player = {
                 if (Store.currentTrack) existingIds.add(Store.currentTrack.id);
                 const newTracks = tracks.filter(t => !existingIds.has(t.id));
                 
-                if (newTracks.length === 0) return;
-                
-                // DO NOT add auto-played radio tracks into Store.queue!
-                // Stream and play the next recommended song directly
-                this.playTrack(newTracks[0]);
+                if (newTracks.length > 0) {
+                    this.playTrack(newTracks[0]);
+                } else if (tracks.length > 0) {
+                    this.playTrack(tracks[0]);
+                }
             })
             .catch(e => {
                 this._fetchingRadio = false;

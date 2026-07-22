@@ -44,7 +44,8 @@ function renderTrackList(tracks, container, options = {}) {
         const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
         const liked = Store.isLiked(track.id);
         const artistName = track.channel?.name || track.artist || '';
-        const artistId = track.artistId || track.channel?.id || artistName;
+        const durSec = track.durationInSec || track.duration || 0;
+        const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
         html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" style="animation-delay:${i * 0.03}s" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
@@ -53,15 +54,15 @@ function renderTrackList(tracks, container, options = {}) {
                     <img class="row-thumb" src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
                     <div class="row-text-group">
                         <span class="row-name">${escapeHtml(track.title || '')}</span>
-                        ${artistName ? `<span class="row-artist-sub"><a href="#/artist/${encodeURIComponent(artistId)}" onclick="event.stopPropagation()">${escapeHtml(artistName)}</a></span>` : ''}
+                        ${artistName ? `<span class="row-artist-sub">${escapeHtml(artistName)}</span>` : ''}
                     </div>
                 </div>
-                <div class="col-artist"><a href="#/artist/${encodeURIComponent(artistId)}" onclick="event.stopPropagation()">${escapeHtml(artistName)}</a></div>
+                <div class="col-artist">${escapeHtml(artistName)}</div>
                 <div class="col-actions">
                     <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
-                <span class="col-time">${track.durationRaw || ''}</span>
+                <span class="col-time">${formattedDur}</span>
             </div>
         </div>`;
     });
@@ -167,7 +168,7 @@ function renderHomePage(container) {
             const c = document.getElementById('recs-container');
             if (!c) return;
             if (tracks && tracks.length > 0) {
-                renderTrackList(tracks, c);
+                renderTrackList(tracks, c, { singleTrackQueue: true });
             } else {
                 const s = document.getElementById('recs-section');
                 if (s) s.remove();
@@ -184,7 +185,7 @@ function renderHomePage(container) {
             .then(tracks => {
                 const recsContainer = document.getElementById('ai-recs-container');
                 if (recsContainer && tracks.length > 0) {
-                    renderTrackList(tracks, recsContainer);
+                    renderTrackList(tracks, recsContainer, { singleTrackQueue: true });
                 } else {
                     const s = document.getElementById('ai-recs-section');
                     if (s) s.remove();
