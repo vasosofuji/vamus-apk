@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupLyricsContainer();
     setupSwipeToQueue();
     setupLikeButtonLongPress();
+    setup3DTouchMenu();
     makeScrubber('progress-track', 'progress-fill', 'progress-thumb', 'current-time');
     
     // Listen for store changes
@@ -1532,6 +1533,162 @@ function clearFloatingSearch(event) {
     if (typeof window.hideFloatingSearchSuggestions === 'function') {
         window.hideFloatingSearchSuggestions();
     }
+}
+
+/* =============================================
+   APPLE 3D TOUCH STYLE LONG-PRESS CONTEXT MENU
+   ============================================= */
+let _longPressTimer = null;
+let _longPressStartPos = { x: 0, y: 0 };
+window._suppressNextClick = false;
+
+function setup3DTouchMenu() {
+    const handleStart = (e) => {
+        const trackEl = e.target.closest('[data-track], .track-row, .recent-card');
+        if (!trackEl) return;
+
+        // Ignore interactive sub-elements like buttons or links
+        if (e.target.closest('button, a, input')) return;
+
+        const touch = e.touches ? e.touches[0] : e;
+        _longPressStartPos = { x: touch.clientX, y: touch.clientY };
+
+        const trackDataAttr = trackEl.getAttribute('data-track');
+        if (!trackDataAttr) return;
+
+        try {
+            const track = JSON.parse(trackDataAttr);
+            clearTimeout(_longPressTimer);
+            _longPressTimer = setTimeout(() => {
+                window._suppressNextClick = true;
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(35); } catch(err) {}
+                }
+                show3DTouchMenu(track, trackEl);
+            }, 450);
+        } catch (err) {}
+    };
+
+    const handleMove = (e) => {
+        if (!_longPressTimer) return;
+        const touch = e.touches ? e.touches[0] : e;
+        const dx = Math.abs(touch.clientX - _longPressStartPos.x);
+        const dy = Math.abs(touch.clientY - _longPressStartPos.y);
+        if (dx > 10 || dy > 10) {
+            clearTimeout(_longPressTimer);
+            _longPressTimer = null;
+        }
+    };
+
+    const handleEnd = () => {
+        clearTimeout(_longPressTimer);
+        _longPressTimer = null;
+    };
+
+    document.addEventListener('touchstart', handleStart, { passive: true });
+    document.addEventListener('touchmove', handleMove, { passive: true });
+    document.addEventListener('touchend', handleEnd, { passive: true });
+    document.addEventListener('touchcancel', handleEnd, { passive: true });
+
+    document.addEventListener('mousedown', handleStart);
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+
+    // Capture-phase click listener to suppress single tap right after a long press
+    document.addEventListener('click', (e) => {
+        if (window._suppressNextClick) {
+            e.stopPropagation();
+            e.preventDefault();
+            window._suppressNextClick = false;
+            return false;
+        }
+    }, true);
+}
+
+function show3DTouchMenu(track, targetEl) {
+    close3DTouchMenu();
+
+    const isLiked = Store.isLiked(track.id);
+    const overlay = document.createElement('div');
+    overlay.id = '3d-touch-menu-overlay';
+    overlay.className = 'touch-menu-overlay';
+
+    const thumb = getTrackThumbnail(track);
+    const title = escapeHtml(track.title || '');
+    const artist = escapeHtml(track.channel?.name || track.artist || '');
+
+    overlay.innerHTML = `
+        <div class="touch-menu-card" onclick="event.stopPropagation()">
+            <div class="touch-menu-header">
+                <img class="touch-menu-thumb" src="${thumb}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
+                <div class="touch-menu-info">
+                    <span class="touch-menu-title">${title}</span>
+                    <span class="touch-menu-artist">${artist}</span>
+                </div>
+            </div>
+            <div class="touch-menu-actions">
+                <button class="touch-menu-btn ${isLiked ? 'active-like' : ''}" onclick="toggle3DTouchLike(event, ${escapeAttr(JSON.stringify(track))})">
+                    ${isLiked ? ICONS.heartFilled : ICONS.heart}
+                    <span>${isLiked ? 'Liked' : 'Like Song'}</span>
+                </button>
+                <button class="touch-menu-btn" onclick="add3DTouchToQueue(event, ${escapeAttr(JSON.stringify(track))})">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span>Add to Queue</span>
+                </button>
+                <button class="touch-menu-btn" onclick="open3DTouchPlaylistModal(event, ${escapeAttr(JSON.stringify(track))})">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                    <span>Add to Playlist</span>
+                </button>
+                <button class="touch-menu-btn" onclick="play3DTouchSong(event, ${escapeAttr(JSON.stringify(track))})">
+                    ${ICONS.play}
+                    <span>Play Song</span>
+                </button>
+            </div>
+        </div>
+    `;
+
+    overlay.addEventListener('click', close3DTouchMenu);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+        overlay.classList.add('active');
+    });
+}
+
+function close3DTouchMenu() {
+    const overlay = document.getElementById('3d-touch-menu-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 200);
+    }
+}
+
+function toggle3DTouchLike(event, track) {
+    if (event) event.stopPropagation();
+    Store.toggleLike(track);
+    const liked = Store.isLiked(track.id);
+    showToast(liked ? 'Added to Liked Songs' : 'Removed from Liked Songs');
+    close3DTouchMenu();
+}
+
+function add3DTouchToQueue(event, track) {
+    if (event) event.stopPropagation();
+    addToPlayerQueue(track);
+    close3DTouchMenu();
+}
+
+function open3DTouchPlaylistModal(event, track) {
+    if (event) event.stopPropagation();
+    close3DTouchMenu();
+    setTimeout(() => {
+        showAddToPlaylistModal(track);
+    }, 150);
+}
+
+function play3DTouchSong(event, track) {
+    if (event) event.stopPropagation();
+    Player.playTrack(track);
+    close3DTouchMenu();
 }
 
 function performFloatingSearch() {
