@@ -15,7 +15,7 @@
 
     <!-- Global Floating Search Widget -->
     <div id="floating-search-container" class="floating-search-container">
-        <button class="floating-search-icon-btn" onclick="toggleFloatingSearch(event)">
+        <button class="floating-search-icon-btn" onclick="openPopupSearch(event)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         </button>
         <div class="floating-search-input-wrap">
@@ -25,6 +25,30 @@
             </button>
         </div>
         <div class="suggestions-dropdown floating-suggestions-dropdown" id="floating-suggestions-dropdown"></div>
+    </div>
+
+    <!-- Fullscreen Popup Search Modal for Search Bubble -->
+    <div id="popup-search-overlay" class="popup-search-overlay" style="display:none">
+        <div class="popup-search-header glass-panel">
+            <button class="popup-search-back-btn" onclick="closePopupSearch()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
+            <div class="popup-search-input-wrap">
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input type="text" id="popup-search-input" placeholder="Search songs, artists..." autocomplete="off" oninput="handlePopupSearchInput(event)" onkeydown="if(event.key === 'Enter') { performPopupSearch(); event.preventDefault(); }">
+                <button id="popup-search-clear-btn" class="popup-search-clear-btn" onclick="clearPopupSearch()">✕</button>
+            </div>
+        </div>
+        <div class="popup-search-chips">
+            <button class="chip active" id="popup-chip-songs" onclick="switchPopupSearchType('songs')">Songs</button>
+            <button class="chip" id="popup-chip-artists" onclick="switchPopupSearchType('artists')">Artists</button>
+        </div>
+        <div id="popup-search-results" class="popup-search-results">
+            <div class="empty-state">
+                <h3>Quick Search</h3>
+                <p>Type to find songs, artists, and playlists instantly</p>
+            </div>
+        </div>
     </div>
 
     <div class="app-container" id="app">

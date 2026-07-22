@@ -8,7 +8,18 @@ const ICONS = {
     x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
 };
 
-const FALLBACK_IMG = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='1.5'%3E%3Cpath d='M9 18V5l12-2v13'/%3E%3Ccircle cx='6' cy='18' r='3'/%3E%3Ccircle cx='18' cy='16' r='3'/%3E%3C/svg%3E";
+const FALLBACK_IMG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><rect width='200' height='200' fill='%231e1b4b'/><circle cx='100' cy='100' r='75' fill='%230f172a'/><circle cx='100' cy='100' r='55' fill='none' stroke='%23334155' stroke-width='3'/><circle cx='100' cy='100' r='35' fill='none' stroke='%23475569' stroke-width='2'/><circle cx='100' cy='100' r='20' fill='%237c3aed'/><circle cx='100' cy='100' r='6' fill='%23ffffff'/></svg>";
+
+function getTrackThumbnail(t) {
+    if (!t) return FALLBACK_IMG;
+    if (typeof t === 'string' && t.length > 5) return t;
+    let url = t.thumbnail || t.cover || t.image || t.coverImage || t.albumArt || t.album_art || (t.thumbnails && t.thumbnails[0] ? (t.thumbnails[0].url || t.thumbnails[0]) : '');
+    if (!url || typeof url !== 'string' || url.includes('undefined') || url.includes('null')) return FALLBACK_IMG;
+    if (url.includes('googleusercontent.com') || url.includes('ytimg.com')) {
+        url = url.replace(/w\d+-h\d+/, 'w500-h500').replace(/s\d+/, 's500');
+    }
+    return url;
+}
 
 const GENRES = [
     { id: 'pop', name: 'Pop', color: 'linear-gradient(135deg, #FF6B6B, #FF8E53)' },
@@ -51,7 +62,7 @@ function renderTrackList(tracks, container, options = {}) {
             <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
                 <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
                 <div class="col-title">
-                    <img class="row-thumb" src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
+                    <img class="row-thumb" src="${getTrackThumbnail(track)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                     <div class="row-text-group">
                         <span class="row-name">${escapeHtml(track.title || '')}</span>
                         ${artistName ? `<span class="row-artist-sub">${escapeHtml(artistName)}</span>` : ''}
@@ -112,7 +123,7 @@ function renderHomePage(container) {
         html += '<section style="margin-top:2rem"><h2 class="section-title">Recently Played</h2><div class="recent-grid">';
         Store.recentlyPlayed.slice(0, 20).forEach(track => {
             html += `<div class="recent-card" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, [${escapeAttr(JSON.stringify(track))}])">
-                <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" alt="">
+                <img src="${getTrackThumbnail(track)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                 <span class="recent-title">${escapeHtml(track.title || '')}</span>
                 <span class="recent-artist">${escapeHtml(track.channel?.name || '')}</span>
             </div>`;

@@ -730,7 +730,10 @@ const Player = {
         const artist = document.getElementById('player-track-artist');
         const likeBtn = document.getElementById('player-like-btn');
         
-        if (thumb) thumb.src = track.thumbnail || '';
+        if (thumb) {
+            thumb.src = typeof getTrackThumbnail === 'function' ? getTrackThumbnail(track) : (track.thumbnail || '');
+            thumb.onerror = function() { this.onerror = null; if (typeof FALLBACK_IMG !== 'undefined') this.src = FALLBACK_IMG; };
+        }
         if (name) name.textContent = track.title || '';
         if (artist) artist.textContent = track.channel?.name || '';
         if (likeBtn) {

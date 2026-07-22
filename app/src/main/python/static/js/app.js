@@ -488,14 +488,14 @@ function updateMobilePlayerUI() {
     const track = Store.currentTrack;
     const bgImg = document.getElementById('mobile-player-bg-image');
     if (bgImg) {
-        bgImg.style.backgroundImage = `url('${track.thumbnail || FALLBACK_IMG}')`;
+        bgImg.style.backgroundImage = `url('${getTrackThumbnail(track)}')`;
     }
 
     const prevTrack = _getPrevTrack();
     const nextTrack = _getNextTrack();
-    const artUrl = track.thumbnail || FALLBACK_IMG;
-    const prevArtUrl = prevTrack ? (prevTrack.thumbnail || FALLBACK_IMG) : '';
-    const nextArtUrl = nextTrack ? (nextTrack.thumbnail || FALLBACK_IMG) : '';
+    const artUrl = getTrackThumbnail(track);
+    const prevArtUrl = prevTrack ? getTrackThumbnail(prevTrack) : '';
+    const nextArtUrl = nextTrack ? getTrackThumbnail(nextTrack) : '';
 
     const slideCurrent = document.getElementById('art-slide-current');
     const slidePrev = document.getElementById('art-slide-prev');
@@ -510,17 +510,17 @@ function updateMobilePlayerUI() {
     if (slideCurrent) {
         slideCurrent.style.transform = 'translateX(0) scale(1)';
         slideCurrent.style.opacity = '1';
-        slideCurrent.innerHTML = `<img src="${artUrl}" onerror="this.src='${FALLBACK_IMG}'">`;
+        slideCurrent.innerHTML = `<img src="${artUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
     }
     if (slidePrev) {
         slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
         slidePrev.style.opacity = '0.5';
-        slidePrev.innerHTML = prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : '';
+        slidePrev.innerHTML = prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
     }
     if (slideNext) {
         slideNext.style.transform = 'translateX(110%) scale(0.88)';
         slideNext.style.opacity = '0.5';
-        slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : '';
+        slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
     }
 
     const titleEl = document.getElementById('mobile-track-title');
@@ -1380,6 +1380,103 @@ function performFloatingSearch() {
 }
 
 // Scrubber playhead dragging logic
+
+// Popup Search Modal Overlay Logic
+window._popupSearchType = 'songs';
+window._popupSearchTimer = null;
+
+function openPopupSearch(event) {
+    if (event) event.stopPropagation();
+    const overlay = document.getElementById('popup-search-overlay');
+    const input = document.getElementById('popup-search-input');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 80);
+    }
+}
+
+function closePopupSearch() {
+    const overlay = document.getElementById('popup-search-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function clearPopupSearch() {
+    const input = document.getElementById('popup-search-input');
+    const clearBtn = document.getElementById('popup-search-clear-btn');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    if (clearBtn) clearBtn.classList.remove('show');
+    const resultsEl = document.getElementById('popup-search-results');
+    if (resultsEl) {
+        resultsEl.innerHTML = '<div class="empty-state"><h3>Quick Search</h3><p>Type to find songs and artists</p></div>';
+    }
+}
+
+function switchPopupSearchType(type) {
+    window._popupSearchType = type;
+    document.getElementById('popup-chip-songs')?.classList.toggle('active', type === 'songs');
+    document.getElementById('popup-chip-artists')?.classList.toggle('active', type === 'artists');
+    performPopupSearch();
+}
+
+function handlePopupSearchInput() {
+    const input = document.getElementById('popup-search-input');
+    const clearBtn = document.getElementById('popup-search-clear-btn');
+    if (!input) return;
+    const q = input.value.trim();
+    if (clearBtn) clearBtn.classList.toggle('show', q.length > 0);
+    
+    clearTimeout(window._popupSearchTimer);
+    if (q.length >= 2) {
+        window._popupSearchTimer = setTimeout(() => {
+            performPopupSearch();
+        }, 200);
+    }
+}
+
+function performPopupSearch() {
+    const input = document.getElementById('popup-search-input');
+    const resultsEl = document.getElementById('popup-search-results');
+    if (!input || !resultsEl) return;
+    const query = input.value.trim();
+    if (!query) {
+        resultsEl.innerHTML = '<div class="empty-state"><h3>Quick Search</h3><p>Type to find songs and artists</p></div>';
+        return;
+    }
+    
+    const type = window._popupSearchType || 'songs';
+    resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
+    
+    fetch(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
+        .then(r => r.json())
+        .then(results => {
+            if (!results || !results.length) {
+                resultsEl.innerHTML = `<div class="empty-state"><h3>No ${type} found</h3></div>`;
+                return;
+            }
+            if (type === 'artists') {
+                let grid = '<div class="card-grid">';
+                results.forEach(a => {
+                    grid += `<div class="artist-card" onclick="closePopupSearch(); navigate('/artist/${encodeURIComponent(a.id)}')">
+                        <img class="artist-card-img" src="${getTrackThumbnail(a)}" onerror="this.onerror=null;this.src=FALLBACK_IMG">
+                        <div class="artist-card-name">${escapeHtml(a.name)}</div>
+                        <div class="artist-card-type">Artist</div>
+                    </div>`;
+                });
+                grid += '</div>';
+                resultsEl.innerHTML = grid;
+            } else {
+                renderTrackList(results, resultsEl, { singleTrackQueue: true });
+            }
+        }).catch(() => {
+            resultsEl.innerHTML = '<div class="empty-state"><h3>Search failed</h3></div>';
+        });
+}
+
 window._isScrubbing = false;
 
 window.seekToMs = function(pos) {
@@ -2333,44 +2430,65 @@ function openPlaylistCustomizerModal(playlistId) {
     const overlay = document.getElementById('modal-overlay');
     if (!overlay) return;
 
+    const bgVal = pl.customBgColor || '#4c1d95';
+
     overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
-        <h3>🎨 Customize "${escapeHtml(pl.name)}"</h3>
-        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Upload custom cover art, header banner, or choose accent colors for this playlist.</p>
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:460px;padding:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+            <h3 style="margin:0;font-size:1.15rem;color:var(--text-primary)">🎨 Customize "${escapeHtml(pl.name)}"</h3>
+            <button class="action-btn secondary" style="padding:0.3rem 0.6rem;font-size:0.8rem" onclick="closeModal()">✕</button>
+        </div>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Personalize your playlist cover art, header banner image, or accent colors.</p>
+
+        <!-- Live Preview Header Banner -->
+        <div id="pl-modal-banner-preview" style="height:90px;border-radius:var(--radius-md);margin-bottom:1.2rem;position:relative;overflow:hidden;display:flex;align-items:center;padding:1rem;background:${pl.bannerImage ? `url('${pl.bannerImage}') center/cover` : (bgVal === 'transparent' ? 'rgba(255,255,255,0.06)' : bgVal)}">
+            <div style="position:absolute;inset:0;background:linear-gradient(transparent, rgba(0,0,0,0.5));pointer-events:none"></div>
+            <div style="position:relative;z-index:1;display:flex;align-items:center;gap:12px">
+                <img id="pl-modal-cover-preview" src="${pl.coverImage || (pl.tracks && pl.tracks[0] ? getTrackThumbnail(pl.tracks[0]) : FALLBACK_IMG)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" style="width:52px;height:52px;border-radius:var(--radius-sm);object-fit:cover;box-shadow:0 4px 12px rgba(0,0,0,0.4)">
+                <div>
+                    <div style="font-weight:700;font-size:1.1rem;color:#ffffff;text-shadow:0 2px 4px rgba(0,0,0,0.6)">${escapeHtml(pl.name)}</div>
+                    <div style="font-size:0.8rem;color:rgba(255,255,255,0.8)">${pl.tracks.length} tracks</div>
+                </div>
+            </div>
+        </div>
         
-        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:1.2rem">
-            <div>
-                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Playlist Cover Art</label>
+        <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:1.2rem">
+            <!-- Cover Art Row -->
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-md);padding:12px">
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:6px">Playlist Cover Photo</label>
                 <div style="display:flex;align-items:center;gap:10px">
-                    ${pl.coverImage ? `<img src="${pl.coverImage}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--surface-hover);display:flex;align-items:center;justify-content:center;color:var(--text-secondary)">🎵</div>'}
-                    <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-cover-file-input').click()">Upload Cover</button>
+                    <button class="action-btn primary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-cover-file-input').click()">Upload Cover</button>
                     ${pl.coverImage ? `<button class="action-btn danger" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="removePlaylistImage('${pl.id}', 'coverImage')">Remove</button>` : ''}
                 </div>
                 <input type="file" id="pl-cover-file-input" accept="image/*" style="display:none" onchange="handlePlaylistFileChange(event, '${pl.id}', 'coverImage')">
             </div>
 
-            <div>
-                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Playlist Header Banner</label>
+            <!-- Header Banner Row -->
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-md);padding:12px">
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:6px">Header Banner Image</label>
                 <div style="display:flex;align-items:center;gap:10px">
-                    ${pl.bannerImage ? `<img src="${pl.bannerImage}" style="width:72px;height:36px;border-radius:6px;object-fit:cover">` : '<div style="width:72px;height:36px;border-radius:6px;background:var(--surface-hover);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.75rem">Banner</div>'}
-                    <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-banner-file-input').click()">Upload Banner</button>
+                    <button class="action-btn primary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-banner-file-input').click()">Upload Banner</button>
                     ${pl.bannerImage ? `<button class="action-btn danger" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="removePlaylistImage('${pl.id}', 'bannerImage')">Remove</button>` : ''}
                 </div>
                 <input type="file" id="pl-banner-file-input" accept="image/*" style="display:none" onchange="handlePlaylistFileChange(event, '${pl.id}', 'bannerImage')">
             </div>
 
-            <div>
-                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Header Accent Color</label>
-                <div style="display:flex;align-items:center;gap:10px">
-                    <input type="color" id="pl-custom-bg-color" value="${pl.customBgColor || '#4c1d95'}" class="color-input-swatch">
-                    <span style="font-size:0.85rem;color:var(--text-secondary)">Pick Header Color</span>
-                    ${pl.customBgColor ? `<button class="action-btn secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem" onclick="removePlaylistImage('${pl.id}', 'customBgColor')">Reset</button>` : ''}
+            <!-- Header Accent Color Row -->
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-md);padding:12px">
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:6px">Header Accent Color</label>
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <input type="color" id="pl-custom-bg-color" value="${bgVal.startsWith('#') ? bgVal : '#4c1d95'}" style="width:36px;height:36px;padding:0;border:none;border-radius:50%;cursor:pointer;background:none">
+                    <button class="chip" style="background:#4c1d95;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#4c1d95';savePlaylistColorCustomization('${pl.id}')">Violet</button>
+                    <button class="chip" style="background:#059669;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#059669';savePlaylistColorCustomization('${pl.id}')">Emerald</button>
+                    <button class="chip" style="background:#2563eb;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#2563eb';savePlaylistColorCustomization('${pl.id}')">Blue</button>
+                    <button class="chip" style="background:#dc2626;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#dc2626';savePlaylistColorCustomization('${pl.id}')">Crimson</button>
+                    <button class="chip" style="background:rgba(255,255,255,0.1);color:#fff;border:1px dashed #fff" onclick="document.getElementById('pl-custom-bg-color').value='transparent';savePlaylistColorCustomization('${pl.id}')">Glass</button>
                 </div>
             </div>
         </div>
 
-        <div class="modal-actions">
-            <button class="modal-btn cancel" onclick="closeModal()">Done</button>
+        <div class="modal-actions" style="margin-top:1.2rem">
+            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
             <button class="modal-btn create" onclick="savePlaylistColorCustomization('${pl.id}')">Save Changes</button>
         </div>
     </div>`;

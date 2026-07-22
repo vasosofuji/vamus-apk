@@ -559,13 +559,117 @@ a { color: inherit; text-decoration: none; }
 /* Spinner / loader */
 #page-content {
   opacity: 1;
-  transform: translate3d(0, 0, 0);
-  transition: opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
+  transition: opacity 0.15s ease-out;
 }
 #page-content.page-transitioning {
-  opacity: 0;
-  transform: translate3d(0, 6px, 0);
+  opacity: 0.1;
+}
+
+/* =============================================
+   GLASSMORPHISM THEME ENGINE (CARDS, SONGS, ROWS)
+   ============================================= */
+body.glass-subtle .glass-panel,
+body.glass-subtle .song-card,
+body.glass-subtle .artist-card,
+body.glass-subtle .album-card,
+body.glass-subtle .track-row,
+body.glass-subtle .sidebar,
+body.glass-subtle .player-bar,
+body.glass-subtle .top-bar,
+body.glass-subtle .modal-box {
+  background: rgba(255, 255, 255, 0.07) !important;
+  backdrop-filter: blur(var(--glass-blur, 14px)) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 14px)) saturate(160%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25) !important;
+}
+
+body.glass-frosted .glass-panel,
+body.glass-frosted .song-card,
+body.glass-frosted .artist-card,
+body.glass-frosted .album-card,
+body.glass-frosted .track-row,
+body.glass-frosted .sidebar,
+body.glass-frosted .player-bar,
+body.glass-frosted .top-bar,
+body.glass-frosted .modal-box {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(var(--glass-blur, 22px)) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 22px)) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.35) !important;
+}
+
+body.glass-clear .glass-panel,
+body.glass-clear .song-card,
+body.glass-clear .artist-card,
+body.glass-clear .album-card,
+body.glass-clear .track-row,
+body.glass-clear .sidebar,
+body.glass-clear .player-bar,
+body.glass-clear .top-bar,
+body.glass-clear .modal-box {
+  background: rgba(255, 255, 255, 0.02) !important;
+  backdrop-filter: blur(var(--glass-blur, 8px)) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 8px)) saturate(140%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Interactive Glass Card Hovers */
+body[class*="glass-"] .song-card:hover,
+body[class*="glass-"] .artist-card:hover,
+body[class*="glass-"] .album-card:hover,
+body[class*="glass-"] .track-row:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+/* =============================================
+   FULLSCREEN POPUP SEARCH MODAL
+   ============================================= */
+.popup-search-overlay {
+  position: fixed; inset: 0; z-index: 2800;
+  background: rgba(9, 9, 11, 0.94);
+  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  display: flex; flex-direction: column;
+  padding: 1rem 1.25rem; animation: popupSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes popupSlideUp {
+  from { opacity: 0; transform: translate3d(0, 16px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.popup-search-header {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.popup-search-back-btn {
+  background: none; border: none; color: var(--text-primary);
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+}
+.popup-search-back-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.popup-search-input-wrap {
+  flex: 1; display: flex; align-items: center; gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color);
+  border-radius: var(--radius-full); padding: 0.6rem 1rem;
+}
+.popup-search-input-wrap input {
+  width: 100%; background: none; border: none; outline: none;
+  color: var(--text-primary); font-size: 0.95rem;
+}
+.popup-search-clear-btn {
+  background: none; border: none; color: var(--text-secondary);
+  cursor: pointer; font-size: 1.1rem; padding: 0 4px; display: none;
+}
+.popup-search-clear-btn.show { display: block; }
+.popup-search-chips {
+  display: flex; gap: 0.5rem; margin-bottom: 1rem; padding: 0 0.25rem;
+}
+.popup-search-results {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;
+  padding-bottom: 5rem;
 }
 
 @keyframes fadeUp {
