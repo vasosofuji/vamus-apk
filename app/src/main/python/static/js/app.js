@@ -912,10 +912,15 @@ function setupSwipeToQueue() {
 }
 
 function addToPlayerQueue(track) {
-    Store.queue = [...Store.queue, track];
-    Store.emit('queueChanged');
-    showToast(`Added to Queue`);
-    Player._pushNextTrackToNative();
+    if (!Store.currentTrack || !Store.isPlaying) {
+        Player.playTrack(track, Store.queue.length > 0 ? Store.queue : [track]);
+        showToast(`Playing ${track.title || 'song'}`);
+    } else {
+        Store.queue = [...Store.queue, track];
+        Store.emit('queueChanged');
+        showToast(`Added to Queue`);
+        Player._pushNextTrackToNative();
+    }
 }
 
 function showToast(message) {

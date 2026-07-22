@@ -84,13 +84,38 @@ const Player = {
             Store.history = [...Store.history, Store.currentTrack];
         }
         
-        Store.currentTrack = track;
-        Store.isPlaying = true;
-        if (newQueue) {
-            Store.queue = newQueue;
-            Store.history = [];
+        // Preserve existing queue when switching songs while queue is active
+        if (Store.queue && Store.queue.length > 0) {
+            const existingIdx = Store.queue.findIndex(t => t.id === track.id);
+            if (existingIdx !== -1) {
+                // Track is already in existing queue — keep queue intact and switch active track
+                Store.currentTrack = track;
+            } else if (newQueue && newQueue.length > 1) {
+                // Explicit new queue context (e.g. "Play All" button on playlist/album)
+                Store.queue = newQueue;
+                Store.currentTrack = track;
+                Store.history = [];
+            } else {
+                // Single song selected while queue is active — insert into queue after current track without deleting queue
+                const currentIdx = Store.queue.findIndex(t => t.id === (Store.currentTrack ? Store.currentTrack.id : ''));
+                if (currentIdx !== -1) {
+                    const updatedQueue = [...Store.queue];
+                    updatedQueue.splice(currentIdx + 1, 0, track);
+                    Store.queue = updatedQueue;
+                } else {
+                    Store.queue = [track, ...Store.queue];
+                }
+                Store.currentTrack = track;
+            }
+        } else {
+            // Queue was empty — initialize queue
+            Store.queue = newQueue && newQueue.length > 0 ? newQueue : [track];
+            Store.currentTrack = track;
         }
+
+        Store.isPlaying = true;
         Store.addToRecent(track);
+        Store.emit('queueChanged');
         
         // Sync to native media session
         if (window.AndroidMediaSession) {
