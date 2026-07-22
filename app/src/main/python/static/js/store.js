@@ -9,6 +9,86 @@ function getApiUrl(path) {
     return path;
 }
 
+const THEME_PRESETS = {
+    default: {
+        name: 'Vamus Dark',
+        bgColor: '#121212',
+        surfaceColor: '#181818',
+        surfaceHover: '#282828',
+        primaryColor: '#1DB954',
+        primaryHover: '#1ED760',
+        textPrimary: '#ffffff',
+        textSecondary: '#b3b3b3',
+        borderColor: '#282828'
+    },
+    oled: {
+        name: 'OLED Black',
+        bgColor: '#000000',
+        surfaceColor: '#0a0a0a',
+        surfaceHover: '#141414',
+        primaryColor: '#1DB954',
+        primaryHover: '#1ED760',
+        textPrimary: '#ffffff',
+        textSecondary: '#888888',
+        borderColor: '#1a1a1a'
+    },
+    cyberpunk: {
+        name: 'Cyberpunk',
+        bgColor: '#0d021a',
+        surfaceColor: '#1a0533',
+        surfaceHover: '#2d0954',
+        primaryColor: '#ff007f',
+        primaryHover: '#ff3399',
+        textPrimary: '#00ffff',
+        textSecondary: '#b967ff',
+        borderColor: '#ff007f'
+    },
+    sunset: {
+        name: 'Sunset Crimson',
+        bgColor: '#1a090d',
+        surfaceColor: '#2b0f16',
+        surfaceHover: '#421721',
+        primaryColor: '#ff4b2b',
+        primaryHover: '#ff416c',
+        textPrimary: '#fff0f2',
+        textSecondary: '#d697a3',
+        borderColor: '#421721'
+    },
+    lavender: {
+        name: 'Lavender Dream',
+        bgColor: '#120d1c',
+        surfaceColor: '#1d172e',
+        surfaceHover: '#2c2345',
+        primaryColor: '#a855f7',
+        primaryHover: '#c084fc',
+        textPrimary: '#f5f3ff',
+        textSecondary: '#a78bfa',
+        borderColor: '#2c2345'
+    },
+    emerald: {
+        name: 'Emerald Forest',
+        bgColor: '#061712',
+        surfaceColor: '#0c261e',
+        surfaceHover: '#153d31',
+        primaryColor: '#10b981',
+        primaryHover: '#34d399',
+        textPrimary: '#ecfdf5',
+        textSecondary: '#6ee7b7',
+        borderColor: '#153d31'
+    },
+    amber: {
+        name: 'Electric Amber',
+        bgColor: '#1c150c',
+        surfaceColor: '#2e2213',
+        surfaceHover: '#45341c',
+        primaryColor: '#f59e0b',
+        primaryHover: '#fbbf24',
+        textPrimary: '#fffbeb',
+        textSecondary: '#fcd34d',
+        borderColor: '#45341c'
+    }
+};
+
 // Data store - replaces React Context/MusicContext
 const Store = {
     currentTrack: null,
@@ -23,6 +103,22 @@ const Store = {
     crossfadeEnabled: false,
     crossfadeDuration: 5, // seconds (1-12)
     autoplayEnabled: true, // auto-radio when queue ends
+
+    // App-wide Customization Theme
+    theme: {
+        preset: 'default',
+        bgColor: '#121212',
+        surfaceColor: '#181818',
+        surfaceHover: '#282828',
+        primaryColor: '#1DB954',
+        primaryHover: '#1ED760',
+        textPrimary: '#ffffff',
+        textSecondary: '#b3b3b3',
+        borderColor: '#282828',
+        wallpaperData: '',
+        wallpaperBlur: 20,
+        wallpaperOpacity: 50
+    },
     
     // Event system for reactivity
     _listeners: {},
@@ -47,6 +143,14 @@ const Store = {
             if (cfd !== null) this.crossfadeDuration = parseInt(cfd, 10) || 5;
             const ap = localStorage.getItem('autoplayEnabled');
             if (ap !== null) this.autoplayEnabled = ap === 'true';
+
+            // Theme customization
+            const savedTheme = localStorage.getItem('vamus_theme_config');
+            if (savedTheme) {
+                try {
+                    this.theme = { ...this.theme, ...JSON.parse(savedTheme) };
+                } catch(e) {}
+            }
         } catch(e) { console.error('Failed to load store', e); }
     },
     
@@ -58,6 +162,7 @@ const Store = {
         localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled));
         localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration));
         localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled));
+        localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme));
     },
     
     // Liked songs
@@ -77,7 +182,7 @@ const Store = {
     
     // Playlists
     createPlaylist(name) {
-        const pl = { id: 'pl_' + Date.now(), name, tracks: [], createdAt: Date.now() };
+        const pl = { id: 'pl_' + Date.now(), name, tracks: [], createdAt: Date.now(), coverImage: '', bannerImage: '', customBgColor: '' };
         this.playlists = [...this.playlists, pl];
         this.save();
         this.emit('playlistsChanged');
@@ -101,6 +206,14 @@ const Store = {
         this.playlists = this.playlists.map(p => {
             if (p.id !== playlistId) return p;
             return { ...p, tracks: p.tracks.filter(t => t.id !== trackId) };
+        });
+        this.save();
+        this.emit('playlistsChanged');
+    },
+    updatePlaylistCustomization(playlistId, customData) {
+        this.playlists = this.playlists.map(p => {
+            if (p.id !== playlistId) return p;
+            return { ...p, ...customData };
         });
         this.save();
         this.emit('playlistsChanged');

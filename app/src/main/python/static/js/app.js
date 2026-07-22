@@ -2,6 +2,7 @@
 window._lyricsOpenedFromPlayer = false;
 
 document.addEventListener('DOMContentLoaded', () => {
+    applyTheme();
     Player.init();
     Router.init();
     updateSidebarPlaylists();
@@ -1518,4 +1519,225 @@ function createPlaylistAndAddSong(track) {
     
     closeModal();
     showToast(`Created & added to ${name}`);
+}
+
+/* =============================================
+   DYNAMIC THEME & WALLPAPER ENGINE
+   ============================================= */
+function applyTheme(config) {
+    const theme = config || Store.theme;
+    const root = document.documentElement;
+
+    root.style.setProperty('--bg-color', theme.bgColor || '#121212');
+    root.style.setProperty('--surface-color', theme.surfaceColor || '#181818');
+    root.style.setProperty('--surface-hover', theme.surfaceHover || '#282828');
+    root.style.setProperty('--primary-color', theme.primaryColor || '#1DB954');
+    root.style.setProperty('--primary-hover', theme.primaryHover || '#1ED760');
+    root.style.setProperty('--text-primary', theme.textPrimary || '#ffffff');
+    root.style.setProperty('--text-secondary', theme.textSecondary || '#b3b3b3');
+    root.style.setProperty('--border-color', theme.borderColor || '#282828');
+
+    const layer = document.getElementById('app-wallpaper-layer');
+    const overlay = document.getElementById('app-wallpaper-overlay');
+    if (layer && overlay) {
+        if (theme.wallpaperData) {
+            layer.style.display = 'block';
+            layer.style.backgroundImage = `url('${theme.wallpaperData}')`;
+            layer.style.filter = `blur(${theme.wallpaperBlur || 0}px)`;
+            overlay.style.backgroundColor = `rgba(0, 0, 0, ${(theme.wallpaperOpacity !== undefined ? theme.wallpaperOpacity : 50) / 100})`;
+        } else {
+            layer.style.display = 'none';
+            layer.style.backgroundImage = '';
+        }
+    }
+}
+
+function applyThemePreset(presetKey) {
+    const preset = THEME_PRESETS[presetKey];
+    if (!preset) return;
+
+    Store.theme = {
+        ...Store.theme,
+        preset: presetKey,
+        bgColor: preset.bgColor,
+        surfaceColor: preset.surfaceColor,
+        surfaceHover: preset.surfaceHover,
+        primaryColor: preset.primaryColor,
+        primaryHover: preset.primaryHover,
+        textPrimary: preset.textPrimary,
+        textSecondary: preset.textSecondary,
+        borderColor: preset.borderColor
+    };
+    Store.save();
+    applyTheme();
+
+    if (Router.currentRoute === '/settings') {
+        Router.render('/settings');
+    }
+    showToast(`Applied ${preset.name} theme`);
+}
+
+function updateCustomColor(key, hex) {
+    Store.theme[key] = hex;
+    Store.theme.preset = 'custom';
+    Store.save();
+    applyTheme();
+}
+
+function resetThemeToDefault() {
+    Store.theme = {
+        preset: 'default',
+        bgColor: '#121212',
+        surfaceColor: '#181818',
+        surfaceHover: '#282828',
+        primaryColor: '#1DB954',
+        primaryHover: '#1ED760',
+        textPrimary: '#ffffff',
+        textSecondary: '#b3b3b3',
+        borderColor: '#282828',
+        wallpaperData: '',
+        wallpaperBlur: 20,
+        wallpaperOpacity: 50
+    };
+    Store.save();
+    applyTheme();
+    if (Router.currentRoute === '/settings') {
+        Router.render('/settings');
+    }
+    showToast('Reset theme to default');
+}
+
+function handleWallpaperUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const base64 = e.target.result;
+        Store.theme.wallpaperData = base64;
+        Store.save();
+        applyTheme();
+        if (Router.currentRoute === '/settings') {
+            Router.render('/settings');
+        }
+        showToast('Wallpaper applied!');
+    };
+    reader.readAsDataURL(file);
+}
+
+function removeWallpaper() {
+    Store.theme.wallpaperData = '';
+    Store.save();
+    applyTheme();
+    if (Router.currentRoute === '/settings') {
+        Router.render('/settings');
+    }
+    showToast('Wallpaper removed');
+}
+
+function updateWallpaperBlur(val) {
+    Store.theme.wallpaperBlur = parseInt(val, 10);
+    Store.save();
+    applyTheme();
+    const label = document.getElementById('wallpaper-blur-label');
+    if (label) label.textContent = `${val}px`;
+}
+
+function updateWallpaperOpacity(val) {
+    Store.theme.wallpaperOpacity = parseInt(val, 10);
+    Store.save();
+    applyTheme();
+    const label = document.getElementById('wallpaper-opacity-label');
+    if (label) label.textContent = `${val}%`;
+}
+
+/* =============================================
+   PER-PLAYLIST CUSTOMIZER MODAL
+   ============================================= */
+function openPlaylistCustomizerModal(playlistId) {
+    const pl = Store.playlists.find(p => p.id === playlistId);
+    if (!pl) return;
+
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
+        <h3>🎨 Customize "${escapeHtml(pl.name)}"</h3>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Upload custom cover art, header banner, or choose accent colors for this playlist.</p>
+        
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:1.2rem">
+            <div>
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Playlist Cover Art</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    ${pl.coverImage ? `<img src="${pl.coverImage}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--surface-hover);display:flex;align-items:center;justify-content:center;color:var(--text-secondary)">🎵</div>'}
+                    <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-cover-file-input').click()">Upload Cover</button>
+                    ${pl.coverImage ? `<button class="action-btn danger" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="removePlaylistImage('${pl.id}', 'coverImage')">Remove</button>` : ''}
+                </div>
+                <input type="file" id="pl-cover-file-input" accept="image/*" style="display:none" onchange="handlePlaylistFileChange(event, '${pl.id}', 'coverImage')">
+            </div>
+
+            <div>
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Playlist Header Banner</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    ${pl.bannerImage ? `<img src="${pl.bannerImage}" style="width:72px;height:36px;border-radius:6px;object-fit:cover">` : '<div style="width:72px;height:36px;border-radius:6px;background:var(--surface-hover);display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:0.75rem">Banner</div>'}
+                    <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="document.getElementById('pl-banner-file-input').click()">Upload Banner</button>
+                    ${pl.bannerImage ? `<button class="action-btn danger" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="removePlaylistImage('${pl.id}', 'bannerImage')">Remove</button>` : ''}
+                </div>
+                <input type="file" id="pl-banner-file-input" accept="image/*" style="display:none" onchange="handlePlaylistFileChange(event, '${pl.id}', 'bannerImage')">
+            </div>
+
+            <div>
+                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:4px">Header Accent Color</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    <input type="color" id="pl-custom-bg-color" value="${pl.customBgColor || '#4c1d95'}" class="color-input-swatch">
+                    <span style="font-size:0.85rem;color:var(--text-secondary)">Pick Header Color</span>
+                    ${pl.customBgColor ? `<button class="action-btn secondary" style="padding:0.3rem 0.6rem;font-size:0.75rem" onclick="removePlaylistImage('${pl.id}', 'customBgColor')">Reset</button>` : ''}
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="modal-btn cancel" onclick="closeModal()">Done</button>
+            <button class="modal-btn create" onclick="savePlaylistColorCustomization('${pl.id}')">Save Changes</button>
+        </div>
+    </div>`;
+}
+
+function handlePlaylistFileChange(event, playlistId, field) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const base64 = e.target.result;
+        Store.updatePlaylistCustomization(playlistId, { [field]: base64 });
+        openPlaylistCustomizerModal(playlistId);
+        if (Router.currentRoute.startsWith('/playlist/')) {
+            Router.render(Router.currentRoute);
+        }
+        showToast('Playlist customization updated!');
+    };
+    reader.readAsDataURL(file);
+}
+
+function removePlaylistImage(playlistId, field) {
+    Store.updatePlaylistCustomization(playlistId, { [field]: '' });
+    openPlaylistCustomizerModal(playlistId);
+    if (Router.currentRoute.startsWith('/playlist/')) {
+        Router.render(Router.currentRoute);
+    }
+    showToast('Customization removed');
+}
+
+function savePlaylistColorCustomization(playlistId) {
+    const input = document.getElementById('pl-custom-bg-color');
+    if (input) {
+        Store.updatePlaylistCustomization(playlistId, { customBgColor: input.value });
+    }
+    closeModal();
+    if (Router.currentRoute.startsWith('/playlist/')) {
+        Router.render(Router.currentRoute);
+    }
+    showToast('Saved playlist customization!');
 }

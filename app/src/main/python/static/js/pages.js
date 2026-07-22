@@ -352,11 +352,19 @@ function renderPlaylistPage(container, id) {
     
     let html = '<div class="animate-fade-up">';
     
-    html += `<div class="hero-section playlist-hero">
-        <div class="hero-icon" style="background:linear-gradient(135deg,#4c1d95,#7c3aed)">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-        </div>
-        <div class="hero-info">
+    const heroBgStyle = pl.bannerImage
+        ? `background-image:url('${pl.bannerImage}');background-size:cover;background-position:center;`
+        : (pl.customBgColor ? `background:linear-gradient(135deg, ${pl.customBgColor}, rgba(0,0,0,0.8));` : 'background:linear-gradient(135deg,#4c1d95,#7c3aed);');
+
+    html += `<div class="hero-section playlist-hero ${pl.bannerImage ? 'custom-hero' : ''}" style="${heroBgStyle}">
+        ${pl.bannerImage ? `<div class="playlist-banner-bg" style="background-image:url('${pl.bannerImage}')"></div>` : ''}
+        ${pl.coverImage
+            ? `<img src="${pl.coverImage}" class="playlist-custom-cover-img">`
+            : `<div class="hero-icon" style="background:linear-gradient(135deg,#4c1d95,#7c3aed);z-index:1">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+               </div>`
+        }
+        <div class="hero-info" style="z-index:1">
             <div class="hero-type">Playlist</div>
             <h1>${escapeHtml(pl.name)}</h1>
             <p class="hero-meta">${pl.tracks.length} songs</p>
@@ -367,6 +375,7 @@ function renderPlaylistPage(container, id) {
     if (pl.tracks.length > 0) {
         html += `<button class="action-btn primary" onclick="Player.playTrack(Store.playlists.find(p=>p.id==='${pl.id}').tracks[0], Store.playlists.find(p=>p.id==='${pl.id}').tracks)">▶ Play All</button>`;
     }
+    html += `<button class="action-btn secondary" onclick="openPlaylistCustomizerModal('${pl.id}')">🎨 Customize</button>`;
     html += `<button class="action-btn danger" onclick="if(confirm('Delete this playlist?')){Store.deletePlaylist('${pl.id}');navigate('/library')}">Delete</button>`;
     html += '</div>';
     
@@ -514,6 +523,87 @@ function renderSettingsPage(container) {
     
     let html = '<div class="animate-fade-up">';
     html += '<div class="page-header"><h1>Settings</h1></div>';
+
+    // Theme & Appearance Settings
+    html += `<div class="settings-section">
+        <h3>🎨 Theme & Appearance</h3>
+        <p>Choose a color preset or build your own custom theme palette.</p>
+        
+        <div style="font-weight:600;font-size:0.9rem;margin-top:0.8rem;color:var(--text-primary)">Color Presets</div>
+        <div class="theme-preset-grid">`;
+    Object.keys(THEME_PRESETS).forEach(key => {
+        const p = THEME_PRESETS[key];
+        const isActive = Store.theme.preset === key;
+        html += `<div class="theme-preset-card ${isActive ? 'active' : ''}" onclick="applyThemePreset('${key}')">
+            <div class="preset-preview-dots">
+                <div class="preset-dot" style="background:${p.bgColor}"></div>
+                <div class="preset-dot" style="background:${p.surfaceColor}"></div>
+                <div class="preset-dot" style="background:${p.primaryColor}"></div>
+            </div>
+            <div class="theme-preset-name">${escapeHtml(p.name)}</div>
+        </div>`;
+    });
+    html += `</div>
+
+        <div style="font-weight:600;font-size:0.9rem;margin-top:1.2rem;color:var(--text-primary)">Custom Colors</div>
+        <div class="color-picker-grid">
+            <div class="color-picker-item">
+                <label>Primary Accent</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.primaryColor}" onchange="updateCustomColor('primaryColor', this.value); updateCustomColor('primaryHover', this.value);">
+            </div>
+            <div class="color-picker-item">
+                <label>Background</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.bgColor}" onchange="updateCustomColor('bgColor', this.value)">
+            </div>
+            <div class="color-picker-item">
+                <label>Surface / Card</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.surfaceColor}" onchange="updateCustomColor('surfaceColor', this.value); updateCustomColor('surfaceHover', this.value);">
+            </div>
+            <div class="color-picker-item">
+                <label>Text Primary</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.textPrimary}" onchange="updateCustomColor('textPrimary', this.value)">
+            </div>
+            <div class="color-picker-item">
+                <label>Text Secondary</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.textSecondary}" onchange="updateCustomColor('textSecondary', this.value)">
+            </div>
+            <div class="color-picker-item">
+                <label>Border Color</label>
+                <input type="color" class="color-input-swatch" value="${Store.theme.borderColor}" onchange="updateCustomColor('borderColor', this.value)">
+            </div>
+        </div>
+
+        <div style="margin-top:1rem">
+            <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="resetThemeToDefault()">Reset Theme to Default</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.5rem 0">
+
+        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom App Wallpaper</div>
+        <p>Upload a custom background wallpaper image for the entire app.</p>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;margin-bottom:1rem">
+            <button class="action-btn primary" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="document.getElementById('app-wallpaper-file-input').click()">Upload Wallpaper</button>
+            ${Store.theme.wallpaperData ? `<button class="action-btn danger" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="removeWallpaper()">Remove Wallpaper</button>` : ''}
+            <input type="file" id="app-wallpaper-file-input" accept="image/*" style="display:none" onchange="handleWallpaperUpload(event)">
+        </div>
+
+        ${Store.theme.wallpaperData ? `
+            <div style="margin-bottom:0.75rem">
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
+                    <span>Wallpaper Blur</span>
+                    <span id="wallpaper-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperBlur || 0}px</span>
+                </div>
+                <input type="range" class="settings-range" min="0" max="40" value="${Store.theme.wallpaperBlur || 0}" oninput="updateWallpaperBlur(this.value)" style="width:100%">
+            </div>
+            <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
+                    <span>Dark Overlay (Dimming)</span>
+                    <span id="wallpaper-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}%</span>
+                </div>
+                <input type="range" class="settings-range" min="10" max="90" value="${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}" oninput="updateWallpaperOpacity(this.value)" style="width:100%">
+            </div>
+        ` : ''}
+    </div>`;
     
     // Gemini API Key
     html += `<div class="settings-section">
