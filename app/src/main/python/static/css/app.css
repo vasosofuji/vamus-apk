@@ -1027,7 +1027,7 @@ a { color: inherit; text-decoration: none; }
   .main-content {
     grid-column: 1;
     grid-row: 1;
-    padding: calc(64px + env(safe-area-inset-top, 0px)) 14px 14px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 14px;
     padding-bottom: 78px; /* space for bottom-nav */
     overflow-x: hidden;
   }
