@@ -618,8 +618,11 @@ a { color: inherit; text-decoration: none; }
   background: #09090b;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+  height: 100vh;
+  height: 100dvh;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1267,6 +1270,11 @@ a { color: inherit; text-decoration: none; }
   .mobile-player-overlay {
     padding: 0;
     padding-top: env(safe-area-inset-top, 0px);
+    overflow: hidden !important;
+    touch-action: none;
+    overscroll-behavior: none !important;
+    height: 100vh !important;
+    height: 100dvh !important;
     animation: slideUp 0.3s cubic-bezier(0.3, 0, 0.4, 1);
   }
 

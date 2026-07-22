@@ -84,8 +84,11 @@ function createPlaylistFromModal() {
 
 function closeModal() {
     const overlay = document.getElementById('modal-overlay');
-    overlay.style.display = 'none';
-    overlay.innerHTML = '';
+    if (overlay) {
+        overlay.style.display = 'none';
+        overlay.style.zIndex = '';
+        overlay.innerHTML = '';
+    }
 }
 
 // Search suggestions
@@ -1495,6 +1498,152 @@ function showAddToPlaylistModal(track) {
         playlistsHtml += `<button class="action-btn secondary" style="width: 100%; margin-top: 8px;" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create New Playlist</button>`;
     }
     
+    overlay.style.zIndex = '3000';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width: 340px; width: 90%; text-align: left;">
+        <h3 style="margin-top: 0; margin-bottom: 12px;">Add to Playlist</h3>
+        <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+            <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" style="width: 48px; height: 48px; border-radius: var(--radius-xs); object-fit: cover;">
+            <div style="display: flex; flex-direction: column; overflow: hidden; white-space: nowrap;">
+                <span style="font-weight: 600; font-size: 0.95rem; text-overflow: ellipsis; overflow: hidden; color: var(--text-primary);">${escapeHtml(track.title || '')}</span>
+                <span style="font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;">${escapeHtml(track.channel?.name || '')}</span>
+            </div>
+        </div>
+        ${playlistsHtml}
+        <div class="modal-actions" style="margin-top: 16px; justify-content: flex-end;">
+            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
+        </div>
+    </div>`;
+function toggleSongInPlaylist(playlistId, track, el) {
+    const pl = Store.playlists.find(p => p.id === playlistId);
+    if (!pl) return;
+    const hasSong = pl.tracks.some(t => t.id === track.id);
+    const indicator = el.querySelector('.playlist-check-indicator');
+    
+    if (hasSong) {
+        Store.removeFromPlaylist(playlistId, track.id);
+        if (indicator) indicator.style.color = 'transparent';
+        showToast(`Removed from ${pl.name}`);
+    } else {
+        Store.addToPlaylist(playlistId, track);
+        if (indicator) indicator.style.color = '#a78bfa';
+        showToast(`Added to ${pl.name}`);
+    }
+}
+
+// Like Button Long Press & Add to Playlist Modal
+let longPressTimer = null;
+let longPressTriggered = false;
+// Timestamp until which the next click on a like button should be swallowed
+// (the click that would otherwise fire right after a long-press activates).
+let suppressLikeClickUntil = 0;
+
+function setupLikeButtonLongPress() {
+    const cancelPress = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    };
+
+    const startPress = (e) => {
+        const btn = e.target.closest('.like-btn');
+        if (!btn) return;
+
+        cancelPress();
+        longPressTriggered = false;
+
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            longPressTriggered = true;
+            // Swallow only the like-button click that immediately follows.
+            suppressLikeClickUntil = Date.now() + 800;
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
+            triggerPlaylistPopupForButton(btn);
+        }, 600);
+    };
+
+    const endPress = (e) => {
+        cancelPress();
+        // If a long press fired, prevent the trailing tap from toggling like.
+        if (longPressTriggered && e.cancelable) {
+            e.preventDefault();
+        }
+        longPressTriggered = false;
+    };
+
+    window.addEventListener('mousedown', startPress, { passive: true });
+    window.addEventListener('touchstart', startPress, { passive: true });
+    window.addEventListener('mouseup', endPress);
+    window.addEventListener('touchend', endPress);
+    window.addEventListener('touchcancel', cancelPress, { passive: true });
+    window.addEventListener('touchmove', cancelPress, { passive: true });
+
+    // Only suppress the follow-up click on the like button itself, and only
+    // briefly. Clicks on the playlist popup (or anything else) are untouched.
+    window.addEventListener('click', (e) => {
+        if (e.target.closest('.like-btn') && Date.now() < suppressLikeClickUntil) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        suppressLikeClickUntil = 0;
+    }, true);
+}
+
+function triggerPlaylistPopupForButton(btn) {
+    const row = btn.closest('.track-row');
+    let track = null;
+    if (row) {
+        const trackData = row.getAttribute('data-track');
+        if (trackData) {
+            try {
+                track = JSON.parse(trackData);
+            } catch (e) {
+                console.error("Failed to parse data-track JSON", e);
+            }
+        }
+    }
+    
+    if (!track) {
+        track = Store.currentTrack;
+    }
+    
+    if (track) {
+        showAddToPlaylistModal(track);
+    } else {
+        showToast("No active track found to add to playlist");
+    }
+}
+
+function showAddToPlaylistModal(track) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    
+    let playlistsHtml = '';
+    if (Store.playlists.length === 0) {
+        playlistsHtml = `<div class="empty-state" style="padding: 1rem 0;">
+            <p style="margin-bottom: 1rem; color: var(--text-muted);">You don't have any playlists yet.</p>
+            <button class="action-btn primary" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create Playlist</button>
+        </div>`;
+    } else {
+        playlistsHtml = '<div class="modal-playlists-list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0;">';
+        Store.playlists.forEach(pl => {
+            const hasSong = pl.tracks.some(t => t.id === track.id);
+            playlistsHtml += `<div class="modal-playlist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer;" onclick="event.stopPropagation(); toggleSongInPlaylist('${pl.id}', ${escapeAttr(JSON.stringify(track))}, this)">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 500; font-size: 0.95rem; color: var(--text-primary);">${escapeHtml(pl.name)}</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);">${pl.tracks.length} songs</span>
+                </div>
+                <span class="playlist-check-indicator" style="font-size: 1.1rem; color: ${hasSong ? '#a78bfa' : 'transparent'};">✓</span>
+            </div>`;
+        });
+        playlistsHtml += '</div>';
+        playlistsHtml += `<button class="action-btn secondary" style="width: 100%; margin-top: 8px;" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create New Playlist</button>`;
+    }
+    
+    overlay.style.zIndex = '3000';
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width: 340px; width: 90%; text-align: left;">
         <h3 style="margin-top: 0; margin-bottom: 12px;">Add to Playlist</h3>
@@ -1533,6 +1682,7 @@ function showCreatePlaylist() {
     const overlay = document.getElementById('modal-overlay');
     if (!overlay) return;
 
+    overlay.style.zIndex = '3000';
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:360px">
         <h3 style="margin-top:0">Create Playlist</h3>
@@ -1565,12 +1715,6 @@ function handleCreatePlaylistSubmit() {
     }
 }
 
-function showCreatePlaylistAndThenAdd(track) {
-    const overlay = document.getElementById('modal-overlay');
-    if (!overlay) return;
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()">
-        <h3>Create Playlist</h3>
         <form onsubmit="event.preventDefault(); createPlaylistAndAddSong(${escapeAttr(JSON.stringify(track))})">
             <input class="modal-input" id="playlist-name-input" placeholder="Playlist name..." autofocus required>
             <div class="modal-actions">
