@@ -118,6 +118,7 @@ const Player = {
     },
     
     // Crossfade-aware version: starts the next track via crossfade instead of hard-cut
+    // Crossfade-aware version: starts the next track via crossfade instead of hard-cut
     _playTrackCrossfade(track) {
         if (Store.currentTrack && Store.currentTrack.id !== track.id) {
             Store.history = [...Store.history, Store.currentTrack];
@@ -126,6 +127,7 @@ const Player = {
         Store.currentTrack = track;
         Store.isPlaying = true;
         Store.addToRecent(track);
+        this._crossfadeTrackId = track.id;
         
         // Sync to native media session
         if (window.AndroidMediaSession) {
@@ -134,23 +136,38 @@ const Player = {
         }
         
         const url = getApiUrl(`/api/stream?id=${track.id}`);
-        const cfDuration = Store.crossfadeDuration;
+        const rawCfDuration = Store.crossfadeDuration || 5;
+        const currentDur = (this.audio && this.audio.duration) ? this.audio.duration : 30;
+        const effectiveCfDuration = Math.max(1, Math.min(rawCfDuration, currentDur * 0.4));
         
         this._isCrossfading = true;
         
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-            window.AndroidMediaSession.playUri(url, true, cfDuration * 1000);
+            window.AndroidMediaSession.playUri(url, true, Math.round(effectiveCfDuration * 1000));
             setTimeout(() => {
                 this._isCrossfading = false;
-            }, cfDuration * 1000);
+            }, Math.round(effectiveCfDuration * 1000));
         } else {
-            // Create new audio element for the incoming track
+            // Clean up any stale crossfade instance first
+            if (this._crossfadeInterval) {
+                clearInterval(this._crossfadeInterval);
+                this._crossfadeInterval = null;
+            }
+            if (this._crossfadeAudio) {
+                try {
+                    this._crossfadeAudio.pause();
+                    this._crossfadeAudio.src = '';
+                } catch(e) {}
+                this._crossfadeAudio = null;
+            }
+
+            // Create new audio element for incoming track
             this._crossfadeAudio = new Audio();
             this._crossfadeAudio.preload = 'auto';
             this._crossfadeAudio.src = url;
             this._crossfadeAudio.volume = 0;
             
-            // Copy ended / error listeners to the new element
+            // Listeners for incoming crossfade audio
             this._crossfadeAudio.addEventListener('ended', () => this.onEnded());
             this._crossfadeAudio.addEventListener('error', (e) => this.onError(e));
             this._crossfadeAudio.addEventListener('play', () => {
@@ -164,44 +181,64 @@ const Player = {
                 }
             });
             
-            this._crossfadeAudio.play().catch(e => console.error('Crossfade play error:', e));
-            
-            // Start the volume ramp
-            const duration = cfDuration * 1000; // ms
-            const steps = 40; // number of volume steps
-            const interval = duration / steps;
-            let step = 0;
-            
-            const oldAudio = this.audio;
-            const savedVol = localStorage.getItem('volume');
-            const targetVol = savedVol !== null ? parseFloat(savedVol) : 1;
-            const startVol = oldAudio.volume;
-            
-            this._crossfadeInterval = setInterval(() => {
-                step++;
-                const progress = Math.min(step / steps, 1);
-                // Smoothstep ease curve for natural-sounding fade
-                const ease = progress * progress * (3 - 2 * progress);
+            // Start volume ramp ONLY once the incoming audio has actually started playing
+            let rampStarted = false;
+            const startRamp = () => {
+                if (rampStarted) return;
+                rampStarted = true;
                 
-                oldAudio.volume = Math.max(0, startVol * (1 - ease));
-                if (this._crossfadeAudio) {
-                    this._crossfadeAudio.volume = targetVol * ease;
-                }
+                const durationMs = effectiveCfDuration * 1000;
+                const steps = 40;
+                const interval = Math.max(10, durationMs / steps);
+                let step = 0;
                 
-                if (step >= steps) {
-                    // Transition complete: swap audio elements
-                    clearInterval(this._crossfadeInterval);
-                    this._crossfadeInterval = null;
+                const oldAudio = this.audio;
+                const savedVol = localStorage.getItem('volume');
+                const targetVol = savedVol !== null ? parseFloat(savedVol) : 1;
+                const startVol = oldAudio ? oldAudio.volume : targetVol;
+                
+                this._crossfadeInterval = setInterval(() => {
+                    step++;
+                    const progress = Math.min(step / steps, 1);
+                    // Smoothstep cubic ease curve for natural logarithmic volume transition
+                    const ease = progress * progress * (3 - 2 * progress);
                     
-                    oldAudio.pause();
-                    oldAudio.src = '';
+                    if (oldAudio) {
+                        try { oldAudio.volume = Math.max(0, startVol * (1 - ease)); } catch(e) {}
+                    }
+                    if (this._crossfadeAudio) {
+                        try { this._crossfadeAudio.volume = Math.min(1, Math.max(0, targetVol * ease)); } catch(e) {}
+                    }
                     
-                    // Promote the new audio to primary
-                    this.audio = this._crossfadeAudio;
-                    this._crossfadeAudio = null;
-                    this._isCrossfading = false;
-                }
-            }, interval);
+                    if (step >= steps) {
+                        clearInterval(this._crossfadeInterval);
+                        this._crossfadeInterval = null;
+                        
+                        if (oldAudio) {
+                            try {
+                                oldAudio.pause();
+                                oldAudio.src = '';
+                            } catch(e) {}
+                        }
+                        
+                        // Promote new crossfade audio to primary audio player
+                        if (this._crossfadeAudio) {
+                            this.audio = this._crossfadeAudio;
+                            this.audio.volume = targetVol;
+                            this._crossfadeAudio = null;
+                        }
+                        this._isCrossfading = false;
+                    }
+                }, interval);
+            };
+
+            this._crossfadeAudio.addEventListener('playing', startRamp, { once: true });
+            
+            this._crossfadeAudio.play().catch(e => {
+                console.error('Crossfade play error:', e);
+                this._cleanupCrossfade();
+                this.playTrack(track);
+            });
         }
         
         this.showPlayerBar();
@@ -216,11 +253,14 @@ const Player = {
             this._crossfadeInterval = null;
         }
         if (this._crossfadeAudio) {
-            this._crossfadeAudio.pause();
-            this._crossfadeAudio.src = '';
+            try {
+                this._crossfadeAudio.pause();
+                this._crossfadeAudio.src = '';
+            } catch(e) {}
             this._crossfadeAudio = null;
         }
         this._isCrossfading = false;
+        this._crossfadeTrackId = null;
     },
     
     togglePlay() {
@@ -397,12 +437,14 @@ const Player = {
     },
     
     setVolume(val) {
+        const v = val / 100;
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setVolume === 'function') {
-            window.AndroidMediaSession.setVolume(val / 100);
+            window.AndroidMediaSession.setVolume(v);
         } else {
-            this.audio.volume = val / 100;
+            if (this.audio) this.audio.volume = v;
+            if (this._crossfadeAudio) this._crossfadeAudio.volume = v;
         }
-        localStorage.setItem('volume', String(val / 100));
+        localStorage.setItem('volume', String(v));
     },
     
     toggleMute() {
@@ -577,15 +619,16 @@ const Player = {
         // Check if we should start crossfading into the next track
         if (Store.crossfadeEnabled && !this._isCrossfading && duration > 0) {
             const remaining = duration - current;
-            const cfDuration = Store.crossfadeDuration;
+            const cfDuration = Store.crossfadeDuration || 5;
+            const effectiveCfDuration = Math.max(1, Math.min(cfDuration, duration * 0.4));
             
-            // Only trigger if we have enough remaining time and we're past at least 50%
-            if (remaining > 0 && remaining <= cfDuration && current > duration * 0.5) {
+            // Trigger when remaining time enters the effective crossfade window and song is past 50%
+            if (remaining > 0 && remaining <= effectiveCfDuration && current > duration * 0.5) {
                 // Don't crossfade if repeat-one (it restarts the same track)
                 if (Store.repeat === 'one') return;
                 
                 const next = this._resolveNextTrack();
-                if (next) {
+                if (next && (!this._crossfadeTrackId || this._crossfadeTrackId !== next.track.id)) {
                     this._playTrackCrossfade(next.track);
                 } else if (Store.autoplayEnabled && Store.currentTrack && !this._fetchingRadio) {
                     // Fetch radio tracks and crossfade into the first one
@@ -606,8 +649,9 @@ const Player = {
                             const newTracks = tracks.filter(t => !existingIds.has(t.id));
                             if (newTracks.length === 0) return;
                             Store.queue = [...Store.queue, ...newTracks];
-                            if (!this._isCrossfading) {
-                                this._playTrackCrossfade(newTracks[0]);
+                            const firstNew = newTracks[0];
+                            if (!this._crossfadeTrackId || this._crossfadeTrackId !== firstNew.id) {
+                                this._playTrackCrossfade(firstNew);
                             }
                         })
                         .catch(e => {
