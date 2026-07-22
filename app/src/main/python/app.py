@@ -1071,11 +1071,70 @@ def api_home_recommendations():
     seed_ids = [s.strip() for s in seed_ids_raw.split(',') if s.strip()][:5]
     artist_names = [n.strip() for n in artist_names_raw.split(',') if n.strip()][:5]
 
-    if not seed_ids and not artist_names:
-        return jsonify([])
-
     results = []
     seen_ids = set(seed_ids)
+
+    if not seed_ids and not artist_names:
+        # Default / initial app launch recommendations: search top trending music hits
+        try:
+            from ytmusicapi import YTMusic
+            yt = YTMusic()
+            for kw in ('Top Hits', 'Trending Music', 'Pop Music'):
+                if len(results) >= 20:
+                    break
+                try:
+                    search_res = yt.search(kw, filter='songs')
+                    for song in search_res:
+                        vid = song.get('videoId')
+                        if vid and vid not in seen_ids:
+                            seen_ids.add(vid)
+                            artists = song.get('artists', [])
+                            artist_name = artists[0].get('name') if artists else 'Unknown Artist'
+                            artist_id = artists[0].get('id') if artists else None
+                            thumb = song.get('thumbnails')[-1].get('url') if song.get('thumbnails') else ''
+                            results.append({
+                                'id': vid,
+                                'title': song.get('title', ''),
+                                'url': f'https://music.youtube.com/watch?v={vid}',
+                                'thumbnail': thumb,
+                                'durationRaw': song.get('duration') or '',
+                                'durationInSec': song.get('duration_seconds') or 0,
+                                'artistId': artist_id,
+                                'channel': {'name': artist_name},
+                            })
+                            if len(results) >= 20:
+                                break
+                except Exception as e_kw:
+                    print(f"ytmusicapi default search for '{kw}' failed:", e_kw)
+                    continue
+        except Exception as e:
+            print("ytmusicapi default recommendations failed:", e)
+
+        # Fallback to Piped search if needed
+        if len(results) < 8:
+            for query in ('top music hits', 'popular songs'):
+                if len(results) >= 20:
+                    break
+                try:
+                    resp = http_requests.get(
+                        'https://api.piped.private.coffee/search',
+                        params={'q': query, 'filter': 'music_songs'},
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    for item in resp.json().get('items', []):
+                        vid = extract_video_id(item.get('url', ''))
+                        if vid and vid not in seen_ids and item.get('duration', 0) > 0:
+                            seen_ids.add(vid)
+                            results.append(map_piped_item(item))
+                            if len(results) >= 20:
+                                break
+                except Exception as e_p:
+                    print("Piped fallback failed:", e_p)
+                    continue
+
+        random.shuffle(results)
+        return jsonify(results[:20])
 
     # --- Primary: YT Music radio seeded by the user's recent/liked tracks ---
     try:

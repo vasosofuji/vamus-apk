@@ -114,21 +114,17 @@ function renderHomePage(container) {
         html += '</div></section>';
     }
     
-    // Recommendations — seeded from the user's listening history + library.
-    // The default "Recommended For You" feed needs no API key; "AI Picks" only
-    // appears when the user has added their own Gemini key in Settings.
+    // Recommendations — seeded from user listening history + library, or default trending music for new users
     const seedTracks = [...Store.recentlyPlayed, ...Store.likedSongs];
     const seedIds = [...new Set(seedTracks.map(t => t.id).filter(Boolean))].slice(0, 5);
     const uniqueArtists = [...new Set(seedTracks.map(t => t.channel?.name).filter(Boolean))].slice(0, 5);
     const hasSeeds = seedIds.length > 0 || uniqueArtists.length > 0;
     const geminiKey = (localStorage.getItem('geminiApiKey') || '').trim();
 
-    if (hasSeeds) {
-        html += `<section style="margin-top:2rem" id="recs-section">
-            <h2 class="section-title">Recommended For You</h2>
-            <div id="recs-container"><div class="page-loader"><div class="spinner"></div><span>Finding songs you'll love...</span></div></div>
-        </section>`;
-    }
+    html += `<section style="margin-top:2rem" id="recs-section">
+        <h2 class="section-title">Recommended For You</h2>
+        <div id="recs-container"><div class="page-loader"><div class="spinner"></div><span>Finding songs you'll love...</span></div></div>
+    </section>`;
 
     if (hasSeeds && geminiKey) {
         html += `<section style="margin-top:2rem" id="ai-recs-section">
@@ -156,27 +152,25 @@ function renderHomePage(container) {
     html += '</div>';
     container.innerHTML = html;
     
-    // Fetch default (no-key) recommendations async
-    if (hasSeeds) {
-        const params = new URLSearchParams();
-        if (seedIds.length) params.set('seedIds', seedIds.join(','));
-        if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
-        fetch(getApiUrl(`/api/home-recommendations?${params.toString()}`))
-            .then(r => r.json())
-            .then(tracks => {
-                const c = document.getElementById('recs-container');
-                if (!c) return;
-                if (tracks && tracks.length > 0) {
-                    renderTrackList(tracks, c);
-                } else {
-                    const s = document.getElementById('recs-section');
-                    if (s) s.remove();
-                }
-            }).catch(() => {
+    // Fetch default recommendations async
+    const params = new URLSearchParams();
+    if (seedIds.length) params.set('seedIds', seedIds.join(','));
+    if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
+    fetch(getApiUrl(`/api/home-recommendations?${params.toString()}`))
+        .then(r => r.json())
+        .then(tracks => {
+            const c = document.getElementById('recs-container');
+            if (!c) return;
+            if (tracks && tracks.length > 0) {
+                renderTrackList(tracks, c);
+            } else {
                 const s = document.getElementById('recs-section');
                 if (s) s.remove();
-            });
-    }
+            }
+        }).catch(() => {
+            const s = document.getElementById('recs-section');
+            if (s) s.remove();
+        });
 
     // Fetch AI recs async — only when the user has configured a Gemini key
     if (hasSeeds && geminiKey && uniqueArtists.length > 0) {
