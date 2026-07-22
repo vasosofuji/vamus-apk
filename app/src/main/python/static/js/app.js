@@ -463,7 +463,7 @@ function setupMobilePlayerSwipe() {
                 slidePrev.style.transform = 'translateX(0) scale(1)';
             }
             setTimeout(() => {
-                playPrev();
+                playPrev(true);
             }, 180);
         } else {
             track.style.transform = 'translateX(0px)';

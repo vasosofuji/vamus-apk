@@ -357,7 +357,7 @@ const Player = {
             });
     },
     
-    playPrev() {
+    playPrev(forcePrevious = false) {
         if (!Store.currentTrack) return;
         
         let curTime = 0;
@@ -367,7 +367,7 @@ const Player = {
             curTime = this.audio.currentTime;
         }
         
-        if (curTime > 3) {
+        if (!forcePrevious && curTime > 3) {
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.seekTo === 'function') {
                 window.AndroidMediaSession.seekTo(0);
             } else {
@@ -381,8 +381,16 @@ const Player = {
             Store.history = Store.history.slice(0, -1);
             this.playTrack(prev, Store.queue);
         } else {
-            const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
-            if (idx > 0) this.playTrack(Store.queue[idx - 1]);
+            const idx = (Store.queue || []).findIndex(t => t.id === Store.currentTrack.id);
+            if (idx > 0) {
+                this.playTrack(Store.queue[idx - 1]);
+            } else {
+                if (window.AndroidMediaSession && typeof window.AndroidMediaSession.seekTo === 'function') {
+                    window.AndroidMediaSession.seekTo(0);
+                } else {
+                    this.audio.currentTime = 0;
+                }
+            }
         }
     },
     
@@ -780,7 +788,7 @@ function formatTime(sec) {
 // Global player functions called from HTML
 function togglePlay() { Player.togglePlay(); }
 function playNext() { Player.playNext(); }
-function playPrev() { Player.playPrev(); }
+function playPrev(forcePrevious = false) { Player.playPrev(forcePrevious); }
 function seekTo(event) { Player.seekTo(event); }
 function setVolume(val) { Player.setVolume(val); }
 function toggleMute() { Player.toggleMute(); }
