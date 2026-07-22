@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     Router.init();
     updateSidebarPlaylists();
     setupSearchSuggestions();
+    setupFloatingSearchSuggestions();
     setupMobilePlayerExpand();
     setupBackButton();
     setupLyricsContainer();
@@ -1064,6 +1065,103 @@ function updateTrackRowsPlayingState() {
 }
 
 /* Floating Search Widget Controllers */
+let floatingSuggestionsTimer = null;
+let floatingSearchTimer = null;
+let floatingAbortController = null;
+
+function setupFloatingSearchSuggestions() {
+    const input = document.getElementById('floating-search-input');
+    const dropdown = document.getElementById('floating-suggestions-dropdown');
+    if (!input || !dropdown) return;
+
+    const hideAndCancel = () => {
+        clearTimeout(floatingSuggestionsTimer);
+        clearTimeout(floatingSearchTimer);
+        if (floatingAbortController) {
+            floatingAbortController.abort();
+            floatingAbortController = null;
+        }
+        dropdown.classList.remove('show');
+        dropdown.innerHTML = '';
+    };
+
+    input.addEventListener('input', () => {
+        const q = input.value.trim();
+        const clearBtn = document.getElementById('floating-search-clear-btn');
+        if (clearBtn) {
+            clearBtn.classList.toggle('show', q.length > 0);
+        }
+
+        clearTimeout(floatingSuggestionsTimer);
+        if (q.length < 2) {
+            dropdown.classList.remove('show');
+            dropdown.innerHTML = '';
+        } else {
+            floatingSuggestionsTimer = setTimeout(() => {
+                if (floatingAbortController) {
+                    floatingAbortController.abort();
+                }
+                floatingAbortController = new AbortController();
+                const signal = floatingAbortController.signal;
+
+                fetch(getApiUrl(`/api/suggestions?q=${encodeURIComponent(q)}`), { signal })
+                    .then(r => r.json())
+                    .then(suggestions => {
+                        if (document.activeElement !== input) return;
+                        if (input.value.trim().length < 2) {
+                            hideAndCancel();
+                            return;
+                        }
+                        if (!suggestions || !suggestions.length) {
+                            dropdown.classList.remove('show');
+                            dropdown.innerHTML = '';
+                            return;
+                        }
+                        dropdown.innerHTML = suggestions.map(s =>
+                            `<div class="suggestion-item" onmousedown="event.preventDefault(); selectFloatingSuggestion('${escapeHtml(s)}')">${escapeHtml(s)}</div>`
+                        ).join('');
+                        dropdown.classList.add('show');
+                    }).catch(err => {
+                        if (err.name === 'AbortError') return;
+                        dropdown.classList.remove('show');
+                        dropdown.innerHTML = '';
+                    });
+            }, 250);
+        }
+
+        clearTimeout(floatingSearchTimer);
+        floatingSearchTimer = setTimeout(() => {
+            if (q) {
+                navigate(`/search?q=${encodeURIComponent(q)}`);
+            }
+        }, 400);
+    });
+
+    input.addEventListener('blur', () => {
+        setTimeout(() => {
+            dropdown.classList.remove('show');
+            dropdown.innerHTML = '';
+        }, 150);
+    });
+
+    input.addEventListener('focus', () => {
+        const q = input.value.trim();
+        if (q.length >= 2 && dropdown.children.length) {
+            dropdown.classList.add('show');
+        }
+    });
+
+    window.selectFloatingSuggestion = (val) => {
+        hideAndCancel();
+        input.value = val;
+        input.blur();
+        collapseFloatingSearch();
+        navigate(`/search?q=${encodeURIComponent(val)}`);
+    };
+
+    window.hideFloatingSearchSuggestions = hideAndCancel;
+}
+
 function toggleFloatingSearch(event) {
     if (event) event.stopPropagation();
     const container = document.getElementById('floating-search-container');
@@ -1079,12 +1177,10 @@ function toggleFloatingSearch(event) {
         }
     } else {
         container.classList.add('expanded');
-        setTimeout(() => input.focus(), 150);
+        setTimeout(() => input.focus(), 120);
         
-        // Listen for click away to close
         document.addEventListener('click', handleFloatingSearchClickAway);
         
-        // Listen for scroll on main content container to close
         const mainContent = document.querySelector('.main-content');
         if (mainContent) {
             mainContent.addEventListener('scroll', collapseFloatingSearch, { passive: true });
@@ -1094,8 +1190,13 @@ function toggleFloatingSearch(event) {
 
 function collapseFloatingSearch() {
     const container = document.getElementById('floating-search-container');
+    const input = document.getElementById('floating-search-input');
     if (container && container.classList.contains('expanded')) {
         container.classList.remove('expanded');
+        if (input) input.blur();
+        if (typeof window.hideFloatingSearchSuggestions === 'function') {
+            window.hideFloatingSearchSuggestions();
+        }
         document.removeEventListener('click', handleFloatingSearchClickAway);
         
         const mainContent = document.querySelector('.main-content');
@@ -1113,11 +1214,7 @@ function handleFloatingSearchClickAway(event) {
 }
 
 function handleFloatingSearchInput(event) {
-    const input = event.target;
-    const clearBtn = document.getElementById('floating-search-clear-btn');
-    if (clearBtn) {
-        clearBtn.classList.toggle('show', input.value.length > 0);
-    }
+    // Handled in setupFloatingSearchSuggestions input listener
 }
 
 function clearFloatingSearch(event) {
@@ -1131,6 +1228,9 @@ function clearFloatingSearch(event) {
     if (clearBtn) {
         clearBtn.classList.remove('show');
     }
+    if (typeof window.hideFloatingSearchSuggestions === 'function') {
+        window.hideFloatingSearchSuggestions();
+    }
 }
 
 function performFloatingSearch() {
@@ -1138,8 +1238,12 @@ function performFloatingSearch() {
     if (!input) return;
     const query = input.value.trim();
     if (query) {
-        navigate('/search?q=' + encodeURIComponent(query));
+        if (typeof window.hideFloatingSearchSuggestions === 'function') {
+            window.hideFloatingSearchSuggestions();
+        }
+        input.blur();
         collapseFloatingSearch();
+        navigate('/search?q=' + encodeURIComponent(query));
     }
 }
 

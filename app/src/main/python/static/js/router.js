@@ -26,6 +26,18 @@ const Router = {
                 topBar.style.display = 'none';
             }
         }
+
+        const floatingSearch = document.getElementById('floating-search-container');
+        if (floatingSearch) {
+            if (path === '/search' || path.startsWith('/search?')) {
+                floatingSearch.style.display = 'none';
+                if (typeof collapseFloatingSearch === 'function') {
+                    collapseFloatingSearch();
+                }
+            } else {
+                floatingSearch.style.display = 'flex';
+            }
+        }
         
         // Parse route
         if (path === '/' || path === '') {
