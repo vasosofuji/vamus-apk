@@ -64,12 +64,10 @@ const Router = {
             requestAnimationFrame(() => {
                 content.classList.remove('page-transitioning');
             });
-            window.scrollTo({ top: 0, behavior: 'instant' });
+
+            const mainContent = document.querySelector('.main-content');
+            if (mainContent) mainContent.scrollTop = 0;
         }, 50);
-    },
-        
-        // Scroll to top
-        document.querySelector('.main-content').scrollTop = 0;
     },
     
     updateActiveNav() {
