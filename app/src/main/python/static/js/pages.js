@@ -13,11 +13,8 @@ const FALLBACK_IMG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000
 function getTrackThumbnail(t) {
     if (!t) return FALLBACK_IMG;
     if (typeof t === 'string' && t.length > 5) return t;
-    let url = t.thumbnail || t.cover || t.image || t.coverImage || t.albumArt || t.album_art || (t.thumbnails && t.thumbnails[0] ? (t.thumbnails[0].url || t.thumbnails[0]) : '');
+    let url = t.thumbnail || t.cover || t.image || t.coverImage || t.albumArt || t.album_art || (t.thumbnails && t.thumbnails.length ? (t.thumbnails[t.thumbnails.length - 1].url || t.thumbnails[0].url || t.thumbnails[0]) : '');
     if (!url || typeof url !== 'string' || url.includes('undefined') || url.includes('null')) return FALLBACK_IMG;
-    if (url.includes('googleusercontent.com') || url.includes('ytimg.com')) {
-        url = url.replace(/w\d+-h\d+/, 'w500-h500').replace(/s\d+/, 's500');
-    }
     return url;
 }
 

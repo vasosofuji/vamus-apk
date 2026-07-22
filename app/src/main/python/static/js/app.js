@@ -1678,7 +1678,7 @@ function showAddToPlaylistModal(track) {
             playlistsHtml += `<div class="modal-playlist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer;" onclick="event.stopPropagation(); toggleSongInPlaylist('${pl.id}', ${escapeAttr(JSON.stringify(track))}, this)">
                 <div style="display: flex; flex-direction: column;">
                     <span style="font-weight: 500; font-size: 0.95rem; color: var(--text-primary);">${escapeHtml(pl.name)}</span>
-                    <span style="font-size: 0.8rem; color: var(--text-muted);">${pl.tracks.length} songs</span>
+                    <span class="pl-count-sub" style="font-size: 0.8rem; color: var(--text-muted); transition: transform 0.2s ease;">${pl.tracks.length} songs</span>
                 </div>
                 <span class="playlist-check-indicator" style="font-size: 1.1rem; color: ${hasSong ? '#a78bfa' : 'transparent'};">✓</span>
             </div>`;
@@ -1708,122 +1708,36 @@ function toggleSongInPlaylist(playlistId, track, el) {
     const pl = Store.playlists.find(p => p.id === playlistId);
     if (!pl) return;
     const hasSong = pl.tracks.some(t => t.id === track.id);
-    const indicator = el.querySelector('.playlist-check-indicator');
+    const indicator = el ? el.querySelector('.playlist-check-indicator') : null;
+    const countEl = el ? el.querySelector('.pl-count-sub') : null;
     
     if (hasSong) {
         Store.removeFromPlaylist(playlistId, track.id);
-        if (indicator) indicator.style.color = 'transparent';
-        showToast(`Removed from ${pl.name}`);
-    } else {
-        Store.addToPlaylist(playlistId, track);
-        if (indicator) indicator.style.color = '#a78bfa';
-        showToast(`Added to ${pl.name}`);
-    }
-}
-
-function triggerPlaylistPopupForButton(btn) {
-    const row = btn.closest('.track-row');
-    let track = null;
-    if (row) {
-        const trackData = row.getAttribute('data-track');
-        if (trackData) {
-            try {
-                track = JSON.parse(trackData);
-            } catch (e) {
-                console.error("Failed to parse data-track JSON", e);
-            }
+        if (indicator) {
+            indicator.style.color = 'transparent';
+            indicator.style.transform = 'scale(0.8)';
+            setTimeout(() => indicator.style.transform = 'scale(1)', 200);
         }
-    }
-    
-    if (!track) {
-        track = Store.currentTrack;
-    }
-    
-    if (track) {
-        showAddToPlaylistModal(track);
-    } else {
-        showToast("No active track found to add to playlist");
-    }
-}
-
-function showAddToPlaylistModal(track) {
-    const overlay = document.getElementById('modal-overlay');
-    if (!overlay) return;
-    
-    let playlistsHtml = '';
-    if (Store.playlists.length === 0) {
-        playlistsHtml = `<div class="empty-state" style="padding: 1rem 0;">
-            <p style="margin-bottom: 1rem; color: var(--text-muted);">You don't have any playlists yet.</p>
-            <button class="action-btn primary" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create Playlist</button>
-        </div>`;
-    } else {
-        playlistsHtml = '<div class="modal-playlists-list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0;">';
-        Store.playlists.forEach(pl => {
-            const hasSong = pl.tracks.some(t => t.id === track.id);
-            playlistsHtml += `<div class="modal-playlist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer;" onclick="event.stopPropagation(); toggleSongInPlaylist('${pl.id}', ${escapeAttr(JSON.stringify(track))}, this)">
-                <div style="display: flex; flex-direction: column;">
-                    <span style="font-weight: 500; font-size: 0.95rem; color: var(--text-primary);">${escapeHtml(pl.name)}</span>
-                    <span style="font-size: 0.8rem; color: var(--text-muted);">${pl.tracks.length} songs</span>
-                </div>
-                <span class="playlist-check-indicator" style="font-size: 1.1rem; color: ${hasSong ? '#a78bfa' : 'transparent'};">✓</span>
-            </div>`;
-        });
-        playlistsHtml += '</div>';
-        playlistsHtml += `<button class="action-btn secondary" style="width: 100%; margin-top: 8px;" onclick="event.stopPropagation(); showCreatePlaylistAndThenAdd(${escapeAttr(JSON.stringify(track))})">+ Create New Playlist</button>`;
-    }
-    
-    overlay.style.zIndex = '3000';
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width: 340px; width: 90%; text-align: left;">
-        <h3 style="margin-top: 0; margin-bottom: 12px;">Add to Playlist</h3>
-        <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-            <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" style="width: 48px; height: 48px; border-radius: var(--radius-xs); object-fit: cover;">
-            <div style="display: flex; flex-direction: column; overflow: hidden; white-space: nowrap;">
-                <span style="font-weight: 600; font-size: 0.95rem; text-overflow: ellipsis; overflow: hidden; color: var(--text-primary);">${escapeHtml(track.title || '')}</span>
-                <span style="font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;">${escapeHtml(track.channel?.name || '')}</span>
-            </div>
-        </div>
-        ${playlistsHtml}
-        <div class="modal-actions" style="margin-top: 16px; justify-content: flex-end;">
-            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
-        </div>
-    </div>`;
-}
-
-function toggleSongInPlaylist(playlistId, track, el) {
-    const pl = Store.playlists.find(p => p.id === playlistId);
-    if (!pl) return;
-    const hasSong = pl.tracks.some(t => t.id === track.id);
-    const indicator = el.querySelector('.playlist-check-indicator');
-    
-    if (hasSong) {
-        Store.removeFromPlaylist(playlistId, track.id);
-        if (indicator) indicator.style.color = 'transparent';
+        if (countEl) {
+            countEl.textContent = `${pl.tracks.length} songs`;
+            countEl.style.transform = 'scale(1.15)';
+            setTimeout(() => countEl.style.transform = 'scale(1)', 200);
+        }
         showToast(`Removed from ${pl.name}`);
     } else {
         Store.addToPlaylist(playlistId, track);
-        if (indicator) indicator.style.color = '#a78bfa';
+        if (indicator) {
+            indicator.style.color = '#a78bfa';
+            indicator.style.transform = 'scale(1.3)';
+            setTimeout(() => indicator.style.transform = 'scale(1)', 200);
+        }
+        if (countEl) {
+            countEl.textContent = `${pl.tracks.length} songs`;
+            countEl.style.transform = 'scale(1.15)';
+            setTimeout(() => countEl.style.transform = 'scale(1)', 200);
+        }
         showToast(`Added to ${pl.name}`);
     }
-}
-
-function showCreatePlaylist() {
-    const overlay = document.getElementById('modal-overlay');
-    if (!overlay) return;
-
-    overlay.style.zIndex = '3000';
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:360px">
-        <h3 style="margin-top:0">Create Playlist</h3>
-        <form onsubmit="event.preventDefault(); handleCreatePlaylistSubmit()">
-            <input class="modal-input" id="new-playlist-name-input" placeholder="Playlist name..." autofocus required style="margin:1rem 0">
-            <div class="modal-actions">
-                <button type="button" class="modal-btn cancel" onclick="closeModal()">Cancel</button>
-                <button type="submit" class="modal-btn create">Create</button>
-            </div>
-        </form>
-    </div>`;
-    setTimeout(() => document.getElementById('new-playlist-name-input')?.focus(), 100);
 }
 
 function handleCreatePlaylistSubmit() {
@@ -2202,7 +2116,7 @@ function openAppearanceModal() {
                     <div class="custom-color-inputs">
                         <input type="text" id="color-hex-${item.key}" class="custom-hex-input" value="${val.toUpperCase()}" onchange="updateCustomColor('${item.key}', this.value)">
                         <div class="color-picker-button-wrapper" title="Open Color Wheel">
-                            <input type="color" id="color-picker-${item.key}" class="color-input-swatch" value="${isPickerVal}" oninput="updateCustomColor('${item.key}', this.value)">
+                            <button class="action-btn secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;border-radius:var(--radius-full)" onclick="openColorWheelModal('${item.key}', '${val}')">Wheel 🎨</button>
                         </div>
                     </div>
                 </div>
@@ -2472,19 +2386,6 @@ function openPlaylistCustomizerModal(playlistId) {
                 </div>
                 <input type="file" id="pl-banner-file-input" accept="image/*" style="display:none" onchange="handlePlaylistFileChange(event, '${pl.id}', 'bannerImage')">
             </div>
-
-            <!-- Header Accent Color Row -->
-            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-md);padding:12px">
-                <label style="font-size:0.85rem;font-weight:600;color:var(--text-primary);display:block;margin-bottom:6px">Header Accent Color</label>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                    <input type="color" id="pl-custom-bg-color" value="${bgVal.startsWith('#') ? bgVal : '#4c1d95'}" style="width:36px;height:36px;padding:0;border:none;border-radius:50%;cursor:pointer;background:none">
-                    <button class="chip" style="background:#4c1d95;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#4c1d95';savePlaylistColorCustomization('${pl.id}')">Violet</button>
-                    <button class="chip" style="background:#059669;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#059669';savePlaylistColorCustomization('${pl.id}')">Emerald</button>
-                    <button class="chip" style="background:#2563eb;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#2563eb';savePlaylistColorCustomization('${pl.id}')">Blue</button>
-                    <button class="chip" style="background:#dc2626;color:#fff;border:none" onclick="document.getElementById('pl-custom-bg-color').value='#dc2626';savePlaylistColorCustomization('${pl.id}')">Crimson</button>
-                    <button class="chip" style="background:rgba(255,255,255,0.1);color:#fff;border:1px dashed #fff" onclick="document.getElementById('pl-custom-bg-color').value='transparent';savePlaylistColorCustomization('${pl.id}')">Glass</button>
-                </div>
-            </div>
         </div>
 
         <div class="modal-actions" style="margin-top:1.2rem">
@@ -2534,4 +2435,122 @@ function savePlaylistColorCustomization(playlistId) {
         Router.render(Router.currentRoute);
     }
     showToast('Saved playlist customization!');
+}
+
+// Interactive Color Wheel Picker Modal
+function openColorWheelModal(colorKey, currentVal) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    
+    let activeColor = (currentVal && currentVal.startsWith('#')) ? currentVal : '#1DB954';
+
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '3200';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:380px;text-align:center;padding:1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 style="margin:0;font-size:1.1rem;color:var(--text-primary)">🎨 Select Color</h3>
+            <button class="action-btn secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem" onclick="openAppearanceModal()">✕</button>
+        </div>
+
+        <div style="position:relative;width:220px;height:220px;margin:0 auto 1.2rem auto">
+            <canvas id="color-wheel-canvas" width="220" height="220" style="border-radius:50%;cursor:crosshair;touch-action:none;box-shadow:0 8px 24px rgba(0,0,0,0.5)"></canvas>
+            <div id="color-wheel-center-badge" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;border:3px solid #ffffff;box-shadow:0 4px 12px rgba(0,0,0,0.4);background:${activeColor}"></div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:1.2rem">
+            <span style="font-size:0.85rem;color:var(--text-secondary)">Hex:</span>
+            <input type="text" id="color-wheel-hex-input" value="${activeColor.toUpperCase()}" style="width:110px;padding:0.4rem 0.6rem;background:rgba(255,255,255,0.08);border:1px solid var(--border-color);border-radius:var(--radius-sm);color:var(--text-primary);font-family:monospace;font-size:0.95rem;text-align:center;outline:none">
+        </div>
+
+        <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:1.4rem">
+            <div class="preset-pill" style="background:#1DB954" onclick="selectColorWheelHex('${colorKey}', '#1DB954')"></div>
+            <div class="preset-pill" style="background:#00F2FE" onclick="selectColorWheelHex('${colorKey}', '#00F2FE')"></div>
+            <div class="preset-pill" style="background:#a855f7" onclick="selectColorWheelHex('${colorKey}', '#a855f7')"></div>
+            <div class="preset-pill" style="background:#ef4444" onclick="selectColorWheelHex('${colorKey}', '#ef4444')"></div>
+            <div class="preset-pill" style="background:#f59e0b" onclick="selectColorWheelHex('${colorKey}', '#f59e0b')"></div>
+            <div class="preset-pill" style="background:#ffffff" onclick="selectColorWheelHex('${colorKey}', '#ffffff')"></div>
+            <div class="preset-pill" style="background:#121212" onclick="selectColorWheelHex('${colorKey}', '#121212')"></div>
+        </div>
+
+        <div class="modal-actions" style="justify-content:center">
+            <button class="modal-btn cancel" onclick="openAppearanceModal()">Cancel</button>
+            <button class="modal-btn create" onclick="saveColorWheelSelection('${colorKey}')">Apply Color</button>
+        </div>
+    </div>`;
+
+    setTimeout(() => {
+        initColorWheelCanvas(colorKey, activeColor);
+    }, 50);
+}
+
+function initColorWheelCanvas(colorKey, startColor) {
+    const canvas = document.getElementById('color-wheel-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const radius = canvas.width / 2;
+
+    for (let x = -radius; x < radius; x++) {
+        for (let y = -radius; y < radius; y++) {
+            const distance = Math.sqrt(x * x + y * y);
+            if (distance <= radius) {
+                const angle = Math.atan2(y, x);
+                const hue = ((angle * (180 / Math.PI)) + 360) % 360;
+                const saturation = Math.min(100, (distance / radius) * 100);
+                ctx.fillStyle = `hsl(${hue}, ${saturation}%, 50%)`;
+                ctx.fillRect(x + radius, y + radius, 1, 1);
+            }
+        }
+    }
+
+    const pickColor = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const x = clientX - rect.left - radius;
+        const y = clientY - rect.top - radius;
+        const distance = Math.sqrt(x * x + y * y);
+        if (distance <= radius) {
+            const angle = Math.atan2(y, x);
+            const hue = ((angle * (180 / Math.PI)) + 360) % 360;
+            const saturation = Math.min(100, (distance / radius) * 100);
+            const hex = hslToHex(hue, saturation, 50);
+            selectColorWheelHex(colorKey, hex);
+        }
+    };
+
+    let isDragging = false;
+    canvas.onmousedown = (e) => { isDragging = true; pickColor(e); };
+    canvas.onmousemove = (e) => { if (isDragging) pickColor(e); };
+    window.onmouseup = () => { isDragging = false; };
+
+    canvas.ontouchstart = (e) => { isDragging = true; pickColor(e); };
+    canvas.ontouchmove = (e) => { if (isDragging) pickColor(e); };
+    window.ontouchend = () => { isDragging = false; };
+}
+
+function selectColorWheelHex(colorKey, hex) {
+    const badge = document.getElementById('color-wheel-center-badge');
+    const input = document.getElementById('color-wheel-hex-input');
+    if (badge) badge.style.background = hex;
+    if (input) input.value = hex.toUpperCase();
+    Store.theme[colorKey] = hex;
+}
+
+function saveColorWheelSelection(colorKey) {
+    const input = document.getElementById('color-wheel-hex-input');
+    if (input && input.value) {
+        updateCustomColor(colorKey, input.value.trim());
+    }
+    openAppearanceModal();
+}
+
+function hslToHex(h, s, l) {
+    l /= 100;
+    const a = s * Math.min(l, 1 - l) / 100;
+    const f = n => {
+        const k = (n + h / 30) % 12;
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
 }
