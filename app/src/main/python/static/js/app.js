@@ -1606,6 +1606,7 @@ function showAddToPlaylistModal(track) {
             <button class="modal-btn cancel" onclick="closeModal()">Close</button>
         </div>
     </div>`;
+}
 function toggleSongInPlaylist(playlistId, track, el) {
     const pl = Store.playlists.find(p => p.id === playlistId);
     if (!pl) return;
@@ -1621,67 +1622,6 @@ function toggleSongInPlaylist(playlistId, track, el) {
         if (indicator) indicator.style.color = '#a78bfa';
         showToast(`Added to ${pl.name}`);
     }
-}
-
-// Like Button Long Press & Add to Playlist Modal
-let longPressTimer = null;
-let longPressTriggered = false;
-// Timestamp until which the next click on a like button should be swallowed
-// (the click that would otherwise fire right after a long-press activates).
-let suppressLikeClickUntil = 0;
-
-function setupLikeButtonLongPress() {
-    const cancelPress = () => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    };
-
-    const startPress = (e) => {
-        const btn = e.target.closest('.like-btn');
-        if (!btn) return;
-
-        cancelPress();
-        longPressTriggered = false;
-
-        longPressTimer = setTimeout(() => {
-            longPressTimer = null;
-            longPressTriggered = true;
-            // Swallow only the like-button click that immediately follows.
-            suppressLikeClickUntil = Date.now() + 800;
-            if (navigator.vibrate) {
-                navigator.vibrate(50);
-            }
-            triggerPlaylistPopupForButton(btn);
-        }, 600);
-    };
-
-    const endPress = (e) => {
-        cancelPress();
-        // If a long press fired, prevent the trailing tap from toggling like.
-        if (longPressTriggered && e.cancelable) {
-            e.preventDefault();
-        }
-        longPressTriggered = false;
-    };
-
-    window.addEventListener('mousedown', startPress, { passive: true });
-    window.addEventListener('touchstart', startPress, { passive: true });
-    window.addEventListener('mouseup', endPress);
-    window.addEventListener('touchend', endPress);
-    window.addEventListener('touchcancel', cancelPress, { passive: true });
-    window.addEventListener('touchmove', cancelPress, { passive: true });
-
-    // Only suppress the follow-up click on the like button itself, and only
-    // briefly. Clicks on the playlist popup (or anything else) are untouched.
-    window.addEventListener('click', (e) => {
-        if (e.target.closest('.like-btn') && Date.now() < suppressLikeClickUntil) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-        suppressLikeClickUntil = 0;
-    }, true);
 }
 
 function triggerPlaylistPopupForButton(btn) {
@@ -1807,6 +1747,13 @@ function handleCreatePlaylistSubmit() {
     }
 }
 
+function showCreatePlaylistAndThenAdd(track) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    overlay.style.zIndex = '3000';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()">
+        <h3>Create Playlist</h3>
         <form onsubmit="event.preventDefault(); createPlaylistAndAddSong(${escapeAttr(JSON.stringify(track))})">
             <input class="modal-input" id="playlist-name-input" placeholder="Playlist name..." autofocus required>
             <div class="modal-actions">
