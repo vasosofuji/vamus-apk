@@ -293,8 +293,11 @@ const Player = {
     togglePlay() {
         if (!Store.currentTrack) return;
         
+        const nextState = !Store.isPlaying;
+        Store.isPlaying = nextState;
+        
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.pausePlayback === 'function') {
-            if (Store.isPlaying) {
+            if (!nextState) {
                 window.AndroidMediaSession.pausePlayback();
             } else {
                 window.AndroidMediaSession.resumePlayback();
@@ -305,22 +308,23 @@ const Player = {
             const curDur = typeof window.AndroidMediaSession.getDuration === 'function'
                 ? window.AndroidMediaSession.getDuration()
                 : 0;
-            window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(curPos), Math.round(curDur));
+            window.AndroidMediaSession.updatePlaybackState(nextState, Math.round(curPos), Math.round(curDur));
         } else {
             const active = this._isCrossfading && this._crossfadeAudio ? this._crossfadeAudio : this.audio;
-            if (Store.isPlaying) {
+            if (!nextState) {
                 active.pause();
             } else {
                 active.play().catch(e => console.error('Play error:', e));
             }
-            Store.isPlaying = !Store.isPlaying;
             if (window.AndroidMediaSession) {
                 const dur = Math.round((active.duration || Store.currentTrack?.durationInSec || 0) * 1000);
-                window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(active.currentTime * 1000), dur);
+                window.AndroidMediaSession.updatePlaybackState(nextState, Math.round(active.currentTime * 1000), dur);
             }
         }
         
+        this.updatePlayerUI();
         this.updatePlayButton();
+        Store.emit('playerUpdate');
     },
     
     playNext() {
