@@ -913,9 +913,15 @@ function setupSwipeToQueue() {
 
 function addToPlayerQueue(track) {
     if (!Store.currentTrack || !Store.isPlaying) {
-        Player.playTrack(track, Store.queue.length > 0 ? Store.queue : [track]);
+        Player.playTrack(track);
         showToast(`Playing ${track.title || 'song'}`);
     } else {
+        // Prevent duplicate entries
+        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
+        if (Store.currentTrack && Store.currentTrack.id === track.id) {
+            showToast(`Already playing ${track.title || 'song'}`);
+            return;
+        }
         Store.queue = [...Store.queue, track];
         Store.emit('queueChanged');
         showToast(`Added to Queue`);
@@ -955,10 +961,13 @@ function renderQueue() {
     const container = document.getElementById('queue-container');
     if (!container) return;
     
+    // Explicit user queue excluding currently playing track
+    const nextUpList = (Store.queue || []).filter(t => t.id !== (Store.currentTrack ? Store.currentTrack.id : ''));
+    
     let html = `
         <div class="queue-header">
             <h2>Play Queue</h2>
-            ${Store.queue.length > 0 ? `<button class="clear-queue-btn" onclick="clearPlayerQueue()">Clear All</button>` : ''}
+            ${nextUpList.length > 0 ? `<button class="clear-queue-btn" onclick="clearPlayerQueue()">Clear All</button>` : ''}
         </div>
     `;
     
@@ -984,11 +993,14 @@ function renderQueue() {
         <h3>Next Up</h3>
     `;
     
-    if (Store.queue.length === 0) {
-        html += `<div class="empty-state"><p style="color:var(--text-secondary)">Queue is empty</p></div>`;
+    if (nextUpList.length === 0) {
+        html += `<div class="empty-state">
+            <p style="color:var(--text-secondary)">Queue is empty</p>
+            <p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Similar songs will auto-play when your song ends</p>
+        </div>`;
     } else {
         html += `<div class="queue-list">`;
-        Store.queue.forEach((track, i) => {
+        nextUpList.forEach((track, i) => {
             html += `
                 <div class="queue-item">
                     <img class="queue-item-thumb" src="${track.thumbnail || FALLBACK_IMG}">
@@ -998,7 +1010,7 @@ function renderQueue() {
                     </div>
                     <div class="queue-item-actions">
                         <button class="queue-action-btn" onclick="moveQueueItem(${i}, -1)" ${i === 0 ? 'disabled' : ''}>↑</button>
-                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, 1)" ${i === Store.queue.length - 1 ? 'disabled' : ''}>↓</button>
+                        <button class="queue-action-btn" onclick="moveQueueItem(${i}, 1)" ${i === nextUpList.length - 1 ? 'disabled' : ''}>↓</button>
                         <button class="queue-action-btn remove" onclick="removeQueueItem(${i})">✕</button>
                     </div>
                 </div>
@@ -1038,9 +1050,11 @@ function removeQueueItem(index) {
 }
 
 function playQueueTrack(index) {
-    const track = Store.queue[index];
-    const newQueue = Store.queue.slice(index);
-    Player.playTrack(track, newQueue);
+    const nextUpList = (Store.queue || []).filter(t => t.id !== (Store.currentTrack ? Store.currentTrack.id : ''));
+    const track = nextUpList[index];
+    if (track) {
+        Player.playTrack(track);
+    }
     toggleQueue();
 }
 

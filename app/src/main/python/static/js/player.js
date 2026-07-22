@@ -58,22 +58,20 @@ const Player = {
     _resolveNextTrack() {
         if (!Store.currentTrack) return null;
         
-        if (Store.shuffle) {
-            const others = Store.queue.filter(t => t.id !== Store.currentTrack.id);
-            if (others.length > 0) {
-                return { track: others[Math.floor(Math.random() * others.length)] };
-            }
-            return null;
+        // Filter out current playing track from explicit user queue
+        const userQueueNext = (Store.queue || []).filter(t => t.id !== Store.currentTrack.id);
+        
+        if (Store.shuffle && userQueueNext.length > 0) {
+            return { track: userQueueNext[Math.floor(Math.random() * userQueueNext.length)] };
         }
         
-        const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
-        if (idx < Store.queue.length - 1) {
-            return { track: Store.queue[idx + 1] };
+        if (userQueueNext.length > 0) {
+            return { track: userQueueNext[0] };
         } else if (Store.repeat === 'all' && Store.queue.length > 0) {
             return { track: Store.queue[0] };
         }
         
-        return null; // end of queue
+        return null; // explicit queue is empty — trigger auto-radio
     },
     
     playTrack(track, newQueue = null) {
@@ -84,36 +82,18 @@ const Player = {
             Store.history = [...Store.history, Store.currentTrack];
         }
         
-        // Preserve existing queue when switching songs while queue is active
-        if (Store.queue && Store.queue.length > 0) {
-            const existingIdx = Store.queue.findIndex(t => t.id === track.id);
-            if (existingIdx !== -1) {
-                // Track is already in existing queue — keep queue intact and switch active track
-                Store.currentTrack = track;
-            } else if (newQueue && newQueue.length > 1) {
-                // Explicit new queue context (e.g. "Play All" button on playlist/album)
-                Store.queue = newQueue;
-                Store.currentTrack = track;
-                Store.history = [];
-            } else {
-                // Single song selected while queue is active — insert into queue after current track without deleting queue
-                const currentIdx = Store.queue.findIndex(t => t.id === (Store.currentTrack ? Store.currentTrack.id : ''));
-                if (currentIdx !== -1) {
-                    const updatedQueue = [...Store.queue];
-                    updatedQueue.splice(currentIdx + 1, 0, track);
-                    Store.queue = updatedQueue;
-                } else {
-                    Store.queue = [track, ...Store.queue];
-                }
-                Store.currentTrack = track;
-            }
-        } else {
-            // Queue was empty — initialize queue
-            Store.queue = newQueue && newQueue.length > 0 ? newQueue : [track];
-            Store.currentTrack = track;
+        Store.currentTrack = track;
+        Store.isPlaying = true;
+
+        // Always remove the currently playing track from Store.queue to prevent duplicate entries
+        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
+        
+        if (newQueue && newQueue.length > 1) {
+            // Explicit context change (e.g. "Play All" on album or playlist)
+            Store.queue = newQueue.filter(t => t.id !== track.id);
+            Store.history = [];
         }
 
-        Store.isPlaying = true;
         Store.addToRecent(track);
         Store.emit('queueChanged');
         
@@ -330,11 +310,14 @@ const Player = {
     playNext() {
         const next = this._resolveNextTrack();
         if (next) {
+            // Remove played track from user queue so it doesn't linger or duplicate
+            Store.queue = (Store.queue || []).filter(t => t.id !== next.track.id);
+            Store.emit('queueChanged');
             this.playTrack(next.track);
             return;
         }
         
-        // Queue exhausted — try auto-radio if enabled
+        // Explicit queue is empty — auto-play similar songs via radio if enabled
         if (Store.autoplayEnabled && Store.currentTrack && !this._fetchingRadio) {
             this._fetchRadioAndPlay();
         }
@@ -357,15 +340,15 @@ const Player = {
                 this._fetchingRadio = false;
                 if (!tracks || !tracks.length) return;
                 
-                // Filter out tracks already in the current queue
-                const existingIds = new Set(Store.queue.map(t => t.id));
-                existingIds.add(Store.currentTrack?.id);
+                // Filter out current track and any track in Store.queue
+                const existingIds = new Set((Store.queue || []).map(t => t.id));
+                if (Store.currentTrack) existingIds.add(Store.currentTrack.id);
                 const newTracks = tracks.filter(t => !existingIds.has(t.id));
                 
                 if (newTracks.length === 0) return;
                 
-                // Append to queue and play the first new track
-                Store.queue = [...Store.queue, ...newTracks];
+                // DO NOT add auto-played radio tracks into Store.queue!
+                // Stream and play the next recommended song directly
                 this.playTrack(newTracks[0]);
             })
             .catch(e => {
