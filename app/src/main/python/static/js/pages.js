@@ -518,157 +518,59 @@ function renderAlbumPage(container, id) {
 
 // ===== SETTINGS PAGE =====
 function renderSettingsPage(container) {
-    const geminiKey = localStorage.getItem('geminiApiKey') || '';
-    const apiServerUrl = localStorage.getItem('apiServerUrl') || 'http://localhost:5000';
-    
     let html = '<div class="animate-fade-up">';
-    html += '<div class="page-header"><h1>Settings</h1></div>';
-
-    // Theme & Appearance Settings
-    html += `<div class="settings-section">
-        <h3>🎨 Theme & Appearance</h3>
-        <p>Choose a color preset or build your own custom theme palette.</p>
-        
-        <div style="font-weight:600;font-size:0.9rem;margin-top:0.8rem;color:var(--text-primary)">Color Presets</div>
-        <div class="theme-preset-grid">`;
-    Object.keys(THEME_PRESETS).forEach(key => {
-        const p = THEME_PRESETS[key];
-        const isActive = Store.theme.preset === key;
-        html += `<div class="theme-preset-card ${isActive ? 'active' : ''}" onclick="applyThemePreset('${key}')">
-            <div class="preset-preview-dots">
-                <div class="preset-dot" style="background:${p.bgColor}"></div>
-                <div class="preset-dot" style="background:${p.surfaceColor}"></div>
-                <div class="preset-dot" style="background:${p.primaryColor}"></div>
-            </div>
-            <div class="theme-preset-name">${escapeHtml(p.name)}</div>
-        </div>`;
-    });
-    html += `</div>
-
-        <div style="font-weight:600;font-size:0.9rem;margin-top:1.2rem;color:var(--text-primary)">Custom Colors</div>
-        <div class="color-picker-grid">
-            <div class="color-picker-item">
-                <label>Primary Accent</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.primaryColor}" onchange="updateCustomColor('primaryColor', this.value); updateCustomColor('primaryHover', this.value);">
-            </div>
-            <div class="color-picker-item">
-                <label>Background</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.bgColor}" onchange="updateCustomColor('bgColor', this.value)">
-            </div>
-            <div class="color-picker-item">
-                <label>Surface / Card</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.surfaceColor}" onchange="updateCustomColor('surfaceColor', this.value); updateCustomColor('surfaceHover', this.value);">
-            </div>
-            <div class="color-picker-item">
-                <label>Text Primary</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.textPrimary}" onchange="updateCustomColor('textPrimary', this.value)">
-            </div>
-            <div class="color-picker-item">
-                <label>Text Secondary</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.textSecondary}" onchange="updateCustomColor('textSecondary', this.value)">
-            </div>
-            <div class="color-picker-item">
-                <label>Border Color</label>
-                <input type="color" class="color-input-swatch" value="${Store.theme.borderColor}" onchange="updateCustomColor('borderColor', this.value)">
+    html += '<div class="page-header"><h1>Settings</h1><p>Customize app appearance, audio preferences, and API connections.</p></div>';
+    
+    html += `<div class="settings-menu-grid">
+        <div class="settings-menu-card" onclick="openAppearanceModal()">
+            <div class="settings-menu-icon">🎨</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">Appearance & Customization</div>
+                <div class="settings-menu-desc">Themes, custom color pickers, and background wallpapers.</div>
             </div>
         </div>
 
-        <div style="margin-top:1rem">
-            <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="resetThemeToDefault()">Reset Theme to Default</button>
+        <div class="settings-menu-card" onclick="openAiRecommendationsModal()">
+            <div class="settings-menu-icon">🤖</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">AI Recommendations</div>
+                <div class="settings-menu-desc">Set Google Gemini API key for extra AI picks.</div>
+            </div>
         </div>
 
-        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.5rem 0">
-
-        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom App Wallpaper</div>
-        <p>Upload a custom background wallpaper image for the entire app.</p>
-        <div style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;margin-bottom:1rem">
-            <button class="action-btn primary" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="document.getElementById('app-wallpaper-file-input').click()">Upload Wallpaper</button>
-            ${Store.theme.wallpaperData ? `<button class="action-btn danger" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="removeWallpaper()">Remove Wallpaper</button>` : ''}
-            <input type="file" id="app-wallpaper-file-input" accept="image/*" style="display:none" onchange="handleWallpaperUpload(event)">
+        <div class="settings-menu-card" onclick="openPlaybackSettingsModal()">
+            <div class="settings-menu-icon">🎵</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">Playback & Audio</div>
+                <div class="settings-menu-desc">Autoplay and crossfade transition duration.</div>
+            </div>
         </div>
 
-        ${Store.theme.wallpaperData ? `
-            <div style="margin-bottom:0.75rem">
-                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
-                    <span>Wallpaper Blur</span>
-                    <span id="wallpaper-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperBlur || 0}px</span>
-                </div>
-                <input type="range" class="settings-range" min="0" max="40" value="${Store.theme.wallpaperBlur || 0}" oninput="updateWallpaperBlur(this.value)" style="width:100%">
+        <div class="settings-menu-card" onclick="openServerUrlModal()">
+            <div class="settings-menu-icon">🔗</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">Server & API URL</div>
+                <div class="settings-menu-desc">Configure Flask backend endpoint.</div>
             </div>
-            <div>
-                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
-                    <span>Dark Overlay (Dimming)</span>
-                    <span id="wallpaper-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}%</span>
-                </div>
-                <input type="range" class="settings-range" min="10" max="90" value="${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}" oninput="updateWallpaperOpacity(this.value)" style="width:100%">
-            </div>
-        ` : ''}
-    </div>`;
-    
-    // Gemini API Key
-    html += `<div class="settings-section">
-        <h3>🤖 Gemini API Key <span style="font-size:0.75rem;font-weight:500;color:var(--text-secondary);vertical-align:middle">Optional</span></h3>
-        <p>Vamus already recommends music based on your playlists and listening history — no key needed. Add your own Google Gemini API key to also get an extra AI-powered "AI Picks For You" row on the home screen.</p>
-        <input class="settings-input" type="password" id="gemini-key-input" value="${escapeHtml(geminiKey)}" placeholder="Enter API key...">
-        <br><button class="action-btn primary" style="margin-top:0.5rem" onclick="saveGeminiKey()">Save Key</button>
-        <span id="gemini-save-msg" style="margin-left:0.75rem;color:var(--success-color);font-size:0.85rem"></span>
-    </div>`;
-    
-    // API Server URL
-    html += `<div class="settings-section">
-        <h3>🔗 API Server URL</h3>
-        <p>Set the base URL of your Python Flask server. Useful when running local Python in Termux or on a PC.</p>
-        <input class="settings-input" type="text" id="api-server-url-input" value="${escapeHtml(apiServerUrl)}" placeholder="http://localhost:5000">
-        <br><button class="action-btn primary" style="margin-top:0.5rem" onclick="saveApiServerUrl()">Save Server URL</button>
-        <span id="api-server-save-msg" style="margin-left:0.75rem;color:var(--success-color);font-size:0.85rem"></span>
-    </div>`;
-    
-    // Playback Settings
-    html += `<div class="settings-section">
-        <h3>🎵 Playback</h3>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
-            <div>
-                <div style="font-weight:600;color:var(--text-primary)">Autoplay</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary)">Automatically play similar songs when your queue ends</div>
-            </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="autoplay-toggle" ${Store.autoplayEnabled ? 'checked' : ''} onchange="toggleAutoplay()">
-                <span class="toggle-slider"></span>
-            </label>
         </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
-            <div>
-                <div style="font-weight:600;color:var(--text-primary)">Crossfade</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary)">Smoothly blend between songs like YT Music</div>
+
+        <div class="settings-menu-card" onclick="openAboutModal()">
+            <div class="settings-menu-icon">ℹ️</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">About Vamus</div>
+                <div class="settings-menu-desc">Version details and ad-free music streaming info.</div>
             </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="crossfade-toggle" ${Store.crossfadeEnabled ? 'checked' : ''} onchange="toggleCrossfade()">
-                <span class="toggle-slider"></span>
-            </label>
         </div>
-        <div id="crossfade-duration-section" style="margin-top:0.5rem;${Store.crossfadeEnabled ? '' : 'opacity:0.4;pointer-events:none;'}">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-                <span style="font-size:0.9rem;color:var(--text-primary)">Crossfade Duration</span>
-                <span id="crossfade-duration-label" style="font-size:0.9rem;color:var(--primary-color);font-weight:600">${Store.crossfadeDuration}s</span>
+
+        <div class="settings-menu-card" style="border-color:rgba(239,68,68,0.3)" onclick="openDangerZoneModal()">
+            <div class="settings-menu-icon" style="background:rgba(239,68,68,0.1);color:var(--danger-color)">⚠️</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title" style="color:var(--danger-color)">Danger Zone</div>
+                <div class="settings-menu-desc">Clear saved data, playlists, and app cache.</div>
             </div>
-            <input type="range" class="settings-range" id="crossfade-duration-slider" min="1" max="12" value="${Store.crossfadeDuration}" oninput="updateCrossfadeDuration(this.value)" style="width:100%">
         </div>
     </div>`;
-    
-    // About
-    html += `<div class="settings-section">
-        <h3>ℹ️ About</h3>
-        <p>Vamus — Ad-free music streaming</p>
-        <p>Version 1.0.0 (Flask Android)</p>
-    </div>`;
-    
-    // Danger Zone
-    html += `<div class="settings-section" style="border-color:rgba(239,68,68,0.3)">
-        <h3 style="color:var(--danger-color)">⚠️ Danger Zone</h3>
-        <p>Clear all saved data including liked songs, playlists, and history.</p>
-        <button class="action-btn danger" onclick="if(confirm('Clear all data? This cannot be undone.')){localStorage.clear();location.reload()}">Clear All Data</button>
-    </div>`;
-    
+
     html += '</div>';
     container.innerHTML = html;
 }

@@ -1560,11 +1560,13 @@ function applyTheme(config) {
     const overlay = document.getElementById('app-wallpaper-overlay');
     if (layer && overlay) {
         if (theme.wallpaperData) {
+            document.body.classList.add('has-wallpaper');
             layer.style.display = 'block';
             layer.style.backgroundImage = `url('${theme.wallpaperData}')`;
-            layer.style.filter = `blur(${theme.wallpaperBlur || 0}px)`;
+            layer.style.filter = `blur(${theme.wallpaperBlur !== undefined ? theme.wallpaperBlur : 0}px)`;
             overlay.style.backgroundColor = `rgba(0, 0, 0, ${(theme.wallpaperOpacity !== undefined ? theme.wallpaperOpacity : 50) / 100})`;
         } else {
+            document.body.classList.remove('has-wallpaper');
             layer.style.display = 'none';
             layer.style.backgroundImage = '';
         }
@@ -1590,17 +1592,40 @@ function applyThemePreset(presetKey) {
     Store.save();
     applyTheme();
 
-    if (Router.currentRoute === '/settings') {
-        Router.render('/settings');
-    }
+    // Update active state in DOM directly without page re-renders or scroll jumping!
+    document.querySelectorAll('.theme-preset-card').forEach(card => {
+        const key = card.getAttribute('data-preset-key');
+        if (key) {
+            card.classList.toggle('active', key === presetKey);
+        }
+    });
+
+    syncCustomColorInputsInDom();
     showToast(`Applied ${preset.name} theme`);
 }
 
 function updateCustomColor(key, hex) {
+    if (!hex) return;
     Store.theme[key] = hex;
     Store.theme.preset = 'custom';
     Store.save();
     applyTheme();
+
+    const input = document.getElementById(`color-picker-${key}`);
+    const hexInput = document.getElementById(`color-hex-${key}`);
+    if (input) input.value = hex;
+    if (hexInput) hexInput.value = hex.toUpperCase();
+}
+
+function syncCustomColorInputsInDom() {
+    const keys = ['primaryColor', 'bgColor', 'surfaceColor', 'textPrimary', 'textSecondary', 'borderColor'];
+    keys.forEach(k => {
+        const input = document.getElementById(`color-picker-${k}`);
+        const hexInput = document.getElementById(`color-hex-${k}`);
+        const val = Store.theme[k];
+        if (input && val) input.value = val;
+        if (hexInput && val) hexInput.value = val.toUpperCase();
+    });
 }
 
 function resetThemeToDefault() {
@@ -1620,8 +1645,8 @@ function resetThemeToDefault() {
     };
     Store.save();
     applyTheme();
-    if (Router.currentRoute === '/settings') {
-        Router.render('/settings');
+    if (document.getElementById('appearance-modal-box')) {
+        openAppearanceModal();
     }
     showToast('Reset theme to default');
 }
@@ -1636,8 +1661,8 @@ function handleWallpaperUpload(event) {
         Store.theme.wallpaperData = base64;
         Store.save();
         applyTheme();
-        if (Router.currentRoute === '/settings') {
-            Router.render('/settings');
+        if (document.getElementById('appearance-modal-box')) {
+            openAppearanceModal();
         }
         showToast('Wallpaper applied!');
     };
@@ -1648,8 +1673,8 @@ function removeWallpaper() {
     Store.theme.wallpaperData = '';
     Store.save();
     applyTheme();
-    if (Router.currentRoute === '/settings') {
-        Router.render('/settings');
+    if (document.getElementById('appearance-modal-box')) {
+        openAppearanceModal();
     }
     showToast('Wallpaper removed');
 }
@@ -1668,6 +1693,226 @@ function updateWallpaperOpacity(val) {
     applyTheme();
     const label = document.getElementById('wallpaper-opacity-label');
     if (label) label.textContent = `${val}%`;
+}
+
+/* =============================================
+   SETTINGS POPUP MODALS
+   ============================================= */
+function openAppearanceModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    
+    let presetsHtml = '';
+    Object.keys(THEME_PRESETS).forEach(key => {
+        const p = THEME_PRESETS[key];
+        const isActive = Store.theme.preset === key;
+        presetsHtml += `<div class="theme-preset-card ${isActive ? 'active' : ''}" data-preset-key="${key}" onclick="applyThemePreset('${key}')">
+            <div class="preset-preview-dots">
+                <div class="preset-dot" style="background:${p.bgColor}"></div>
+                <div class="preset-dot" style="background:${p.surfaceColor}"></div>
+                <div class="preset-dot" style="background:${p.primaryColor}"></div>
+            </div>
+            <div class="theme-preset-name">${escapeHtml(p.name)}</div>
+        </div>`;
+    });
+
+    const colorItems = [
+        { key: 'primaryColor', label: 'Primary Accent' },
+        { key: 'bgColor', label: 'App Background' },
+        { key: 'surfaceColor', label: 'Card Surface' },
+        { key: 'textPrimary', label: 'Primary Text' },
+        { key: 'textSecondary', label: 'Secondary Text' },
+        { key: 'borderColor', label: 'Border Color' }
+    ];
+
+    let colorRowsHtml = '';
+    colorItems.forEach(item => {
+        const val = Store.theme[item.key] || '#ffffff';
+        colorRowsHtml += `
+            <div class="custom-color-row">
+                <span class="custom-color-label">${item.label}</span>
+                <div class="custom-color-controls">
+                    <input type="text" id="color-hex-${item.key}" class="custom-hex-input" value="${val.toUpperCase()}" onchange="if(/^#[0-9A-F]{6}$/i.test(this.value)) updateCustomColor('${item.key}', this.value)">
+                    <input type="color" id="color-picker-${item.key}" class="color-input-swatch" value="${val}" oninput="updateCustomColor('${item.key}', this.value)">
+                </div>
+            </div>
+        `;
+    });
+
+    overlay.innerHTML = `<div class="modal-box" id="appearance-modal-box" onclick="event.stopPropagation()" style="max-width:540px;max-height:85vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <h3 style="margin:0">🎨 Appearance & Customization</h3>
+            <button class="action-btn secondary" style="padding:0.2rem 0.6rem;font-size:0.8rem" onclick="closeModal()">✕</button>
+        </div>
+
+        <div style="font-weight:600;font-size:0.9rem;margin-top:0.4rem;color:var(--text-primary)">Color Theme Presets</div>
+        <div class="theme-preset-grid">
+            ${presetsHtml}
+        </div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.2rem 0">
+
+        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom Color Palette</div>
+        <div class="custom-color-grid">
+            ${colorRowsHtml}
+        </div>
+
+        <div style="margin-top:1rem">
+            <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="resetThemeToDefault()">Reset Theme to Default</button>
+        </div>
+
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.2rem 0">
+
+        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom Background Wallpaper</div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px">Set a custom background image for the entire app.</p>
+        
+        <div style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;margin-bottom:1rem">
+            <button class="action-btn primary" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="document.getElementById('modal-wallpaper-file-input').click()">Upload Wallpaper</button>
+            ${Store.theme.wallpaperData ? `<button class="action-btn danger" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="removeWallpaper()">Remove Wallpaper</button>` : ''}
+            <input type="file" id="modal-wallpaper-file-input" accept="image/*" style="display:none" onchange="handleWallpaperUpload(event)">
+        </div>
+
+        ${Store.theme.wallpaperData ? `
+            <div style="margin-bottom:0.75rem">
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
+                    <span>Wallpaper Blur</span>
+                    <span id="wallpaper-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperBlur || 0}px</span>
+                </div>
+                <input type="range" class="settings-range" min="0" max="40" value="${Store.theme.wallpaperBlur || 0}" oninput="updateWallpaperBlur(this.value)" style="width:100%">
+            </div>
+            <div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
+                    <span>Dark Overlay (Dimming)</span>
+                    <span id="wallpaper-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}%</span>
+                </div>
+                <input type="range" class="settings-range" min="10" max="90" value="${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}" oninput="updateWallpaperOpacity(this.value)" style="width:100%">
+            </div>
+        ` : ''}
+
+        <div class="modal-actions" style="margin-top:1.5rem">
+            <button class="modal-btn create" onclick="closeModal()">Done</button>
+        </div>
+    </div>`;
+}
+
+function openAiRecommendationsModal() {
+    const key = localStorage.getItem('geminiApiKey') || '';
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
+        <h3>🤖 AI Music Recommendations</h3>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Vamus automatically recommends music based on your listening history. Enter your Google Gemini API key to also get an extra AI-powered "AI Picks For You" row on the home screen.</p>
+        
+        <input class="modal-input" type="password" id="gemini-key-input" value="${escapeHtml(key)}" placeholder="Enter Gemini API key...">
+        <div id="gemini-save-msg" style="color:var(--success-color);font-size:0.85rem;margin-top:4px;min-height:20px"></div>
+
+        <div class="modal-actions">
+            <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+            <button class="modal-btn create" onclick="saveGeminiKey()">Save Key</button>
+        </div>
+    </div>`;
+}
+
+function openPlaybackSettingsModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
+        <h3>🎵 Playback & Audio Settings</h3>
+        
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;margin-bottom:1rem">
+            <div>
+                <div style="font-weight:600;color:var(--text-primary)">Autoplay</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Automatically play similar songs when queue ends</div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="autoplay-toggle" ${Store.autoplayEnabled ? 'checked' : ''} onchange="toggleAutoplay()">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+            <div>
+                <div style="font-weight:600;color:var(--text-primary)">Crossfade</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Smoothly blend between songs like YT Music</div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="crossfade-toggle" ${Store.crossfadeEnabled ? 'checked' : ''} onchange="toggleCrossfade()">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div id="crossfade-duration-section" style="margin-top:0.5rem;${Store.crossfadeEnabled ? '' : 'opacity:0.4;pointer-events:none;'}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                <span style="font-size:0.9rem;color:var(--text-primary)">Crossfade Duration</span>
+                <span id="crossfade-duration-label" style="font-size:0.9rem;color:var(--primary-color);font-weight:600">${Store.crossfadeDuration}s</span>
+            </div>
+            <input type="range" class="settings-range" id="crossfade-duration-slider" min="1" max="12" value="${Store.crossfadeDuration}" oninput="updateCrossfadeDuration(this.value)" style="width:100%">
+        </div>
+
+        <div class="modal-actions" style="margin-top:1.5rem">
+            <button class="modal-btn create" onclick="closeModal()">Done</button>
+        </div>
+    </div>`;
+}
+
+function openServerUrlModal() {
+    const url = localStorage.getItem('apiServerUrl') || 'http://localhost:5000';
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
+        <h3>🔗 Server & API Base URL</h3>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Set the base URL of your Python Flask server endpoint (e.g. when running local Python in Termux or on a PC).</p>
+        
+        <input class="modal-input" type="text" id="api-server-url-input" value="${escapeHtml(url)}" placeholder="http://localhost:5000">
+        <div id="api-server-save-msg" style="color:var(--success-color);font-size:0.85rem;margin-top:4px;min-height:20px"></div>
+
+        <div class="modal-actions">
+            <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+            <button class="modal-btn create" onclick="saveApiServerUrl()">Save Server URL</button>
+        </div>
+    </div>`;
+}
+
+function openAboutModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:400px">
+        <h3>ℹ️ About Vamus</h3>
+        <p style="font-size:0.9rem;color:var(--text-primary);margin-top:0.75rem">Vamus — Ad-free music streaming & audio player</p>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.25rem">Version 1.0.0 (Flask + ExoPlayer + Capacitor)</p>
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-top:0.75rem">Powered by ExoPlayer, YouTube Music API, and custom theme engines.</p>
+
+        <div class="modal-actions" style="margin-top:1.5rem">
+            <button class="modal-btn create" onclick="closeModal()">Close</button>
+        </div>
+    </div>`;
+}
+
+function openDangerZoneModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:420px;border-color:rgba(239,68,68,0.4)">
+        <h3 style="color:var(--danger-color)">⚠️ Danger Zone</h3>
+        <p style="font-size:0.88rem;color:var(--text-primary);margin-top:0.75rem">Clear all saved local data including liked songs, playlists, custom themes, wallpapers, and playback history?</p>
+        <p style="font-size:0.82rem;color:var(--danger-color);margin-top:0.25rem">This action cannot be undone.</p>
+
+        <div class="modal-actions" style="margin-top:1.5rem">
+            <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+            <button class="modal-btn danger" style="background:var(--danger-color);color:white" onclick="localStorage.clear();location.reload()">Clear All Data</button>
+        </div>
+    </div>`;
 }
 
 /* =============================================
