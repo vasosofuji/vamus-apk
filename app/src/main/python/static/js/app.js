@@ -1529,13 +1529,50 @@ function toggleSongInPlaylist(playlistId, track, el) {
     }
 }
 
+function showCreatePlaylist() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:360px">
+        <h3 style="margin-top:0">Create Playlist</h3>
+        <form onsubmit="event.preventDefault(); handleCreatePlaylistSubmit()">
+            <input class="modal-input" id="new-playlist-name-input" placeholder="Playlist name..." autofocus required style="margin:1rem 0">
+            <div class="modal-actions">
+                <button type="button" class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="modal-btn create">Create</button>
+            </div>
+        </form>
+    </div>`;
+    setTimeout(() => document.getElementById('new-playlist-name-input')?.focus(), 100);
+}
+
+function handleCreatePlaylistSubmit() {
+    const input = document.getElementById('new-playlist-name-input');
+    const name = input ? input.value.trim() : '';
+    if (!name) return;
+
+    try {
+        const plId = Store.createPlaylist(name);
+        closeModal();
+        showToast(`Created playlist "${name}"`);
+        if (Router.currentRoute === '/library') {
+            Router.render('/library');
+        }
+    } catch(e) {
+        console.error('Failed to create playlist:', e);
+        showToast('Failed to create playlist');
+    }
+}
+
 function showCreatePlaylistAndThenAdd(track) {
     const overlay = document.getElementById('modal-overlay');
     if (!overlay) return;
+    overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()">
         <h3>Create Playlist</h3>
         <form onsubmit="event.preventDefault(); createPlaylistAndAddSong(${escapeAttr(JSON.stringify(track))})">
-            <input class="modal-input" id="playlist-name-input" placeholder="Playlist name..." autofocus>
+            <input class="modal-input" id="playlist-name-input" placeholder="Playlist name..." autofocus required>
             <div class="modal-actions">
                 <button type="button" class="modal-btn cancel" onclick="showAddToPlaylistModal(${escapeAttr(JSON.stringify(track))})">Back</button>
                 <button type="submit" class="modal-btn create">Create & Add</button>
@@ -1548,13 +1585,68 @@ function showCreatePlaylistAndThenAdd(track) {
 function createPlaylistAndAddSong(track) {
     const input = document.getElementById('playlist-name-input');
     const name = input ? input.value.trim() : '';
-    if (!name) return;
+    if (!name) {
+        showToast('Please enter a playlist name');
+        return;
+    }
     
-    const plId = Store.createPlaylist(name);
-    Store.addToPlaylist(plId, track);
-    
-    closeModal();
-    showToast(`Created & added to ${name}`);
+    try {
+        const plId = Store.createPlaylist(name);
+        if (track) {
+            Store.addToPlaylist(plId, track);
+            showToast(`Created "${name}" & added song`);
+        } else {
+            showToast(`Created playlist "${name}"`);
+        }
+        closeModal();
+        if (Router.currentRoute === '/library') {
+            Router.render('/library');
+        }
+    } catch(e) {
+        console.error('Failed to create playlist:', e);
+        showToast('Error creating playlist');
+    }
+}
+
+/* Image compression helper to prevent localStorage quota exceptions */
+function compressImageFile(file, maxWidth = 1000, maxHeight = 1000, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+        if (!file) {
+            reject(new Error("No file provided"));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                let width = img.width;
+                let height = img.height;
+                
+                if (width > maxWidth || height > maxHeight) {
+                    if (width / height > maxWidth / maxHeight) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    } else {
+                        width = Math.round((width * maxHeight) / height);
+                        height = maxHeight;
+                    }
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+                resolve(compressedBase64);
+            };
+            img.onerror = () => reject(new Error("Failed to load image"));
+            img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+    });
 }
 
 /* =============================================
@@ -1671,10 +1763,9 @@ function resetThemeToDefault() {
 function handleWallpaperUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+    showToast('Processing wallpaper...');
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const base64 = e.target.result;
+    compressImageFile(file, 1280, 720, 0.75).then(base64 => {
         Store.theme.wallpaperData = base64;
         Store.save();
         applyTheme();
@@ -1682,8 +1773,10 @@ function handleWallpaperUpload(event) {
             openAppearanceModal();
         }
         showToast('Wallpaper applied!');
-    };
-    reader.readAsDataURL(file);
+    }).catch(e => {
+        console.error('Wallpaper processing failed:', e);
+        showToast('Failed to process image');
+    });
 }
 
 function removeWallpaper() {
@@ -1988,18 +2081,22 @@ function openPlaylistCustomizerModal(playlistId) {
 function handlePlaylistFileChange(event, playlistId, field) {
     const file = event.target.files?.[0];
     if (!file) return;
+    showToast('Processing image...');
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const base64 = e.target.result;
+    const maxW = field === 'coverImage' ? 500 : 1000;
+    const maxH = field === 'coverImage' ? 500 : 400;
+
+    compressImageFile(file, maxW, maxH, 0.8).then(base64 => {
         Store.updatePlaylistCustomization(playlistId, { [field]: base64 });
         openPlaylistCustomizerModal(playlistId);
         if (Router.currentRoute.startsWith('/playlist/')) {
             Router.render(Router.currentRoute);
         }
-        showToast('Playlist customization updated!');
-    };
-    reader.readAsDataURL(file);
+        showToast('Playlist image updated!');
+    }).catch(e => {
+        console.error('Playlist image processing failed:', e);
+        showToast('Failed to process image');
+    });
 }
 
 function removePlaylistImage(playlistId, field) {

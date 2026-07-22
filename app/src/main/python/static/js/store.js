@@ -156,13 +156,13 @@ const Store = {
     
     // Save to localStorage
     save() {
-        localStorage.setItem('likedSongs', JSON.stringify(this.likedSongs));
-        localStorage.setItem('playlists', JSON.stringify(this.playlists));
-        localStorage.setItem('recentlyPlayed', JSON.stringify(this.recentlyPlayed));
-        localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled));
-        localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration));
-        localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled));
-        localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme));
+        try { localStorage.setItem('likedSongs', JSON.stringify(this.likedSongs)); } catch(e) { console.error('Error saving likedSongs', e); }
+        try { localStorage.setItem('playlists', JSON.stringify(this.playlists)); } catch(e) { console.error('Error saving playlists', e); }
+        try { localStorage.setItem('recentlyPlayed', JSON.stringify(this.recentlyPlayed)); } catch(e) { console.error('Error saving recentlyPlayed', e); }
+        try { localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled)); } catch(e) {}
+        try { localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration)); } catch(e) {}
+        try { localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled)); } catch(e) {}
+        try { localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme)); } catch(e) { console.error('Error saving vamus_theme_config', e); }
     },
     
     // Liked songs
