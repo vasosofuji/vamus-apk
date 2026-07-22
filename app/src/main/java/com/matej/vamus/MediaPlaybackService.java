@@ -383,7 +383,14 @@ public class MediaPlaybackService extends Service {
                         long pos = player.getCurrentPosition();
                         long dur = player.getDuration();
                         cachedPositionMs = pos < 0 ? 0 : pos;
-                        cachedDurationMs = (dur == C.TIME_UNSET || dur < 0) ? 0 : dur;
+                        long validDur = (dur == C.TIME_UNSET || dur < 0) ? 0 : dur;
+                        if (validDur > 0 && validDur != cachedDurationMs) {
+                            cachedDurationMs = validDur;
+                            MainActivity activity = MainActivity.getInstance();
+                            if (activity != null) {
+                                activity.updateNativeDuration(validDur);
+                            }
+                        }
                     }
                 } catch (Exception ignored) {}
                 mainHandler.postDelayed(this, 250);

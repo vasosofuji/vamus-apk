@@ -14,6 +14,7 @@ import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.webkit.JavascriptInterface;
 
 import com.chaquo.python.Python;
@@ -34,6 +35,7 @@ public class MainActivity extends BridgeActivity {
     private String currentTitle = "";
     private String currentArtist = "";
     private String currentThumbUrl = "";
+    private long currentDurationMs = 0;
     private Bitmap currentArtwork = null;
     private Notification lastNotification;
 
@@ -230,15 +232,25 @@ public class MainActivity extends BridgeActivity {
         this.bridge.getWebView().addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void updateMetadata(final String title, final String artist, final String thumbUrl) {
+                updateMetadata(title, artist, thumbUrl, 0);
+            }
+
+            @JavascriptInterface
+            public void updateMetadata(final String title, final String artist, final String thumbUrl, final long durationMs) {
                 runOnUiThread(new Runnable() {
-                    @Override public void run() { updateNativeMetadata(title, artist, thumbUrl); }
+                    @Override public void run() { updateNativeMetadata(title, artist, thumbUrl, durationMs); }
                 });
             }
 
             @JavascriptInterface
             public void updatePlaybackState(final boolean isPlaying, final long positionMs) {
+                updatePlaybackState(isPlaying, positionMs, 0);
+            }
+
+            @JavascriptInterface
+            public void updatePlaybackState(final boolean isPlaying, final long positionMs, final long durationMs) {
                 runOnUiThread(new Runnable() {
-                    @Override public void run() { updateNativePlaybackState(isPlaying, positionMs); }
+                    @Override public void run() { updateNativePlaybackState(isPlaying, positionMs, durationMs); }
                 });
             }
 
@@ -431,20 +443,48 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
+    public void updateNativeDuration(final long durationMs) {
+        if (durationMs <= 0 || durationMs == currentDurationMs) return;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                currentDurationMs = durationMs;
+                setMetadataOnSession();
+            }
+        });
+    }
+
     private void updateNativePlaybackState(boolean isPlaying, long positionMs) {
+        updateNativePlaybackState(isPlaying, positionMs, 0);
+    }
+
+    private void updateNativePlaybackState(boolean isPlaying, long positionMs, long durationMs) {
         if (mediaSession == null || stateBuilder == null) return;
+        if (durationMs > 0 && durationMs != currentDurationMs) {
+            currentDurationMs = durationMs;
+            setMetadataOnSession();
+        }
         int state = isPlaying ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
-        stateBuilder.setState(state, positionMs, isPlaying ? 1.0f : 0.0f);
+        stateBuilder.setState(state, positionMs, isPlaying ? 1.0f : 0.0f, SystemClock.elapsedRealtime());
         mediaSession.setPlaybackState(stateBuilder.build());
 
         showOrUpdateNotification(isPlaying);
     }
 
     private void updateNativeMetadata(final String title, final String artist, final String thumbUrl) {
+        updateNativeMetadata(title, artist, thumbUrl, 0);
+    }
+
+    private void updateNativeMetadata(final String title, final String artist, final String thumbUrl, final long durationMs) {
         if (mediaSession == null) return;
         currentTitle = title != null ? title : "";
         currentArtist = artist != null ? artist : "";
         currentThumbUrl = thumbUrl != null ? thumbUrl : "";
+        if (durationMs > 0) {
+            currentDurationMs = durationMs;
+        } else {
+            currentDurationMs = 0;
+        }
         currentArtwork = null;
 
         setMetadataOnSession();
@@ -485,8 +525,8 @@ public class MainActivity extends BridgeActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                updateNativeMetadata(next.title, next.artist, next.thumbnail);
-                updateNativePlaybackState(true, 0);
+                updateNativeMetadata(next.title, next.artist, next.thumbnail, 0);
+                updateNativePlaybackState(true, 0, 0);
             }
         });
     }
@@ -496,6 +536,17 @@ public class MainActivity extends BridgeActivity {
         MediaMetadata.Builder metaBuilder = new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist);
+
+        long dur = currentDurationMs;
+        if (dur <= 0) {
+            MediaPlaybackService svc = MediaPlaybackService.getInstance();
+            if (svc != null) {
+                dur = svc.getDuration();
+            }
+        }
+        if (dur > 0) {
+            metaBuilder.putLong(MediaMetadata.METADATA_KEY_DURATION, dur);
+        }
 
         if (currentArtwork != null) {
             metaBuilder.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, currentArtwork);

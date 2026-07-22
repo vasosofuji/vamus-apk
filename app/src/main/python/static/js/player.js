@@ -94,8 +94,9 @@ const Player = {
         
         // Sync to native media session
         if (window.AndroidMediaSession) {
-            window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '');
-            window.AndroidMediaSession.updatePlaybackState(true, 0);
+            const durMs = Math.round((track.durationInSec || 0) * 1000);
+            window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '', durMs);
+            window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
         
         const url = getApiUrl(`/api/stream?id=${track.id}`);
@@ -131,8 +132,9 @@ const Player = {
         
         // Sync to native media session
         if (window.AndroidMediaSession) {
-            window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '');
-            window.AndroidMediaSession.updatePlaybackState(true, 0);
+            const durMs = Math.round((track.durationInSec || 0) * 1000);
+            window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '', durMs);
+            window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
         
         const url = getApiUrl(`/api/stream?id=${track.id}`);
@@ -272,8 +274,13 @@ const Player = {
             } else {
                 window.AndroidMediaSession.resumePlayback();
             }
-            Store.isPlaying = !Store.isPlaying;
-            window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(window.AndroidMediaSession.getCurrentPosition()));
+            const curPos = typeof window.AndroidMediaSession.getCurrentPosition === 'function'
+                ? window.AndroidMediaSession.getCurrentPosition()
+                : 0;
+            const curDur = typeof window.AndroidMediaSession.getDuration === 'function'
+                ? window.AndroidMediaSession.getDuration()
+                : 0;
+            window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(curPos), Math.round(curDur));
         } else {
             const active = this._isCrossfading && this._crossfadeAudio ? this._crossfadeAudio : this.audio;
             if (Store.isPlaying) {
@@ -283,7 +290,8 @@ const Player = {
             }
             Store.isPlaying = !Store.isPlaying;
             if (window.AndroidMediaSession) {
-                window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(active.currentTime * 1000));
+                const dur = Math.round((active.duration || Store.currentTrack?.durationInSec || 0) * 1000);
+                window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, Math.round(active.currentTime * 1000), dur);
             }
         }
         
@@ -580,6 +588,16 @@ const Player = {
             const active = this._isCrossfading && this._crossfadeAudio ? this._crossfadeAudio : this.audio;
             current = active.currentTime || 0;
             duration = active.duration || 0;
+        }
+        
+        if (duration <= 0 && Store.currentTrack && Store.currentTrack.durationInSec) {
+            duration = Store.currentTrack.durationInSec;
+        }
+
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.updatePlaybackState === 'function') {
+            const posMs = Math.round(current * 1000);
+            const durMs = Math.round(duration * 1000);
+            window.AndroidMediaSession.updatePlaybackState(Store.isPlaying, posMs, durMs);
         }
         
         if (window._isScrubbing) return;
