@@ -206,6 +206,27 @@ a { color: inherit; text-decoration: none; }
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 20px; margin-bottom: 2rem;
 }
+/* Compact playlist grid — smaller cards so more fit */
+.card-grid.playlist-grid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+.playlist-card-cover {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 0.4rem;
+  overflow: hidden;
+}
+.card-grid.playlist-grid .album-card {
+  padding: 0.5rem;
+}
+.card-grid.playlist-grid .album-card-name {
+  font-size: 0.82rem;
+}
+.card-grid.playlist-grid .album-card-type {
+  font-size: 0.72rem;
+}
 
 /* Album/Artist cards */
 .album-card, .artist-card {

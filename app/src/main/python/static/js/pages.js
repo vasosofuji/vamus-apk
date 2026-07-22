@@ -297,10 +297,14 @@ function renderLibraryPage(container) {
             <button class="action-btn primary" onclick="showCreatePlaylist()">Create Playlist</button>
         </div>`;
     } else {
-        html += '<div class="card-grid">';
+        html += '<div class="card-grid playlist-grid">';
         Store.playlists.forEach(pl => {
+            const coverBg = pl.coverImage
+                ? `background-image:url('${pl.coverImage}');background-size:cover;background-position:center;`
+                : `background:linear-gradient(135deg,${pl.customBgColor || '#4c1d95'},#7c3aed);`;
+            const coverContent = pl.coverImage ? '' : ICONS.music;
             html += `<div class="album-card" onclick="navigate('/playlist/${pl.id}')" style="position:relative">
-                <div style="width:100%;aspect-ratio:1;background:linear-gradient(135deg,#4c1d95,#7c3aed);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;margin-bottom:0.5rem">${ICONS.music}</div>
+                <div class="playlist-card-cover" style="${coverBg}">${coverContent}</div>
                 <div class="album-card-name">${escapeHtml(pl.name)}</div>
                 <div class="album-card-type">${pl.tracks.length} songs</div>
             </div>`;
