@@ -18,8 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen for store changes
     Store.on('playlistsChanged', () => {
         updateSidebarPlaylists();
-        // Re-render current page if on library/playlist
-        if (Router.currentRoute === '/library' || Router.currentRoute.startsWith('/playlist/')) {
+        // Re-render current page if on home/library/playlist
+        if (Router.currentRoute === '/' || Router.currentRoute === '/library' || Router.currentRoute.startsWith('/playlist/')) {
             Router.render(Router.currentRoute);
         }
     });
@@ -523,13 +523,209 @@ function updateMobilePlayerUI() {
         slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
     }
 
+function _getPrevTrack() {
+    if (!Store.currentTrack) return null;
+    let curTime = 0;
+    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
+        curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
+    } else if (Player.audio) {
+        curTime = Player.audio.currentTime;
+    }
+    if (curTime > 3) return Store.currentTrack;
+    if (Store.history.length > 0) return Store.history[Store.history.length - 1];
+    const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
+    if (idx > 0) return Store.queue[idx - 1];
+    return null;
+}
+
+function _getNextTrack() {
+    if (typeof Player !== 'undefined' && Player._resolveNextTrack) {
+        const res = Player._resolveNextTrack();
+        return res ? res.track : null;
+    }
+    return null;
+}
+
+function setupMobilePlayerSwipe() {
+    const container = document.getElementById('mobile-player-art-container');
+    const track = document.getElementById('mobile-player-carousel-track');
+    const slideCurrent = document.getElementById('art-slide-current');
+    const slidePrev = document.getElementById('art-slide-prev');
+    const slideNext = document.getElementById('art-slide-next');
+    if (!container || !track) return;
+
+    let startX = 0;
+    let startY = 0;
+    let deltaX = 0;
+    let isDragging = false;
+    let isHorizontal = false;
+    let containerWidth = container.offsetWidth || 320;
+    let hasPrev = false;
+    let hasNext = false;
+
+    function onPointerDown(e) {
+        if (e.target.closest('button')) return;
+        const pointer = e.touches ? e.touches[0] : e;
+        startX = pointer.clientX;
+        startY = pointer.clientY;
+        deltaX = 0;
+        isDragging = true;
+        isHorizontal = false;
+        containerWidth = container.offsetWidth || 320;
+        hasPrev = !!_getPrevTrack() || !!Store.currentTrack;
+        hasNext = !!_getNextTrack() || !!Store.currentTrack;
+        track.classList.remove('animating');
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+        const pointer = e.touches ? e.touches[0] : e;
+        const currentX = pointer.clientX;
+        const currentY = pointer.clientY;
+        const dx = currentX - startX;
+        const dy = currentY - startY;
+
+        if (!isHorizontal) {
+            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+                isHorizontal = true;
+            } else if (Math.abs(dy) > 10) {
+                isDragging = false;
+                return;
+            }
+        }
+
+        if (!isHorizontal) return;
+
+        if (e.cancelable) e.preventDefault();
+
+        deltaX = dx;
+
+        if (deltaX < 0 && !hasNext) {
+            deltaX = deltaX * 0.3;
+        } else if (deltaX > 0 && !hasPrev) {
+            deltaX = deltaX * 0.3;
+        }
+
+        track.style.transform = `translateX(${deltaX}px)`;
+
+        const ratio = Math.abs(deltaX) / containerWidth;
+        if (slideCurrent) {
+            slideCurrent.style.transform = `scale(${Math.max(0.85, 1 - ratio * 0.15)})`;
+            slideCurrent.style.opacity = Math.max(0.4, 1 - ratio * 0.6);
+        }
+
+        if (deltaX < 0 && slideNext) {
+            slideNext.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
+            slideNext.style.transform = `translateX(calc(110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
+        } else if (deltaX > 0 && slidePrev) {
+            slidePrev.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
+            slidePrev.style.transform = `translateX(calc(-110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
+        }
+    }
+
+    function onPointerEnd() {
+        if (!isDragging) return;
+        isDragging = false;
+        track.classList.add('animating');
+
+        const threshold = containerWidth * 0.22;
+        if (deltaX < -threshold && hasNext) {
+            track.style.transform = 'translateX(-110%)';
+            if (slideCurrent) slideCurrent.style.opacity = '0.3';
+            if (slideNext) {
+                slideNext.style.opacity = '1';
+                slideNext.style.transform = 'translateX(0) scale(1)';
+            }
+            setTimeout(() => {
+                playNext();
+            }, 180);
+        } else if (deltaX > threshold && hasPrev) {
+            track.style.transform = 'translateX(110%)';
+            if (slideCurrent) slideCurrent.style.opacity = '0.3';
+            if (slidePrev) {
+                slidePrev.style.opacity = '1';
+                slidePrev.style.transform = 'translateX(0) scale(1)';
+            }
+            setTimeout(() => {
+                playPrev(true);
+            }, 180);
+        } else {
+            track.style.transform = 'translateX(0px)';
+            if (slideCurrent) {
+                slideCurrent.style.transform = 'translateX(0) scale(1)';
+                slideCurrent.style.opacity = '1';
+            }
+            if (slidePrev) {
+                slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
+                slidePrev.style.opacity = '0.5';
+            }
+            if (slideNext) {
+                slideNext.style.transform = 'translateX(110%) scale(0.88)';
+                slideNext.style.opacity = '0.5';
+            }
+        }
+    }
+
+    container.addEventListener('touchstart', onPointerDown, { passive: true });
+    container.addEventListener('touchmove', onPointerMove, { passive: false });
+    container.addEventListener('touchend', onPointerEnd, { passive: true });
+    container.addEventListener('touchcancel', onPointerEnd, { passive: true });
+
+    container.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerEnd);
+}
+
+function updateMobilePlayerUI() {
+    const overlay = document.getElementById('mobile-player-overlay');
+    if (!overlay || overlay.style.display === 'none' || !Store.currentTrack) return;
+
+    const track = Store.currentTrack;
+    const bgImg = document.getElementById('mobile-player-bg-image');
+    if (bgImg) {
+        bgImg.style.backgroundImage = `url('${getTrackThumbnail(track)}')`;
+    }
+
+    const prevTrack = _getPrevTrack();
+    const nextTrack = _getNextTrack();
+    const artUrl = getTrackThumbnail(track);
+    const prevArtUrl = prevTrack ? getTrackThumbnail(prevTrack) : '';
+    const nextArtUrl = nextTrack ? getTrackThumbnail(nextTrack) : '';
+
+    const slideCurrent = document.getElementById('art-slide-current');
+    const slidePrev = document.getElementById('art-slide-prev');
+    const slideNext = document.getElementById('art-slide-next');
+    const carouselTrack = document.getElementById('mobile-player-carousel-track');
+
+    if (carouselTrack) {
+        carouselTrack.classList.remove('animating');
+        carouselTrack.style.transform = 'translateX(0px)';
+    }
+
+    if (slideCurrent) {
+        slideCurrent.style.transform = 'translateX(0) scale(1)';
+        slideCurrent.style.opacity = '1';
+        slideCurrent.innerHTML = `<img src="${artUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
+    }
+    if (slidePrev) {
+        slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
+        slidePrev.style.opacity = '0.5';
+        slidePrev.innerHTML = prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
+    }
+    if (slideNext) {
+        slideNext.style.transform = 'translateX(110%) scale(0.88)';
+        slideNext.style.opacity = '0.5';
+        slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
+    }
+
     const titleEl = document.getElementById('mobile-track-title');
     const artistEl = document.getElementById('mobile-track-artist');
     if (titleEl) titleEl.textContent = track.title || '';
     if (artistEl) artistEl.textContent = track.channel?.name || '';
 
     const infoWrapper = document.getElementById('mobile-track-info-wrapper');
-    if (infoWrapper) {
+    if (infoWrapper && window._lastMobileTrackId !== track.id) {
+        window._lastMobileTrackId = track.id;
         infoWrapper.classList.remove('animate-song-change');
         void infoWrapper.offsetWidth;
         infoWrapper.classList.add('animate-song-change');
@@ -659,60 +855,19 @@ function navigateToCurrentArtist(event) {
 
     const artistId = track.channel?.id || track.artistId || track.channel?.name || track.artist;
     if (artistId) {
-        Router.navigate('/artist/' + encodeURIComponent(artistId));
+        navigate('/artist/' + encodeURIComponent(artistId));
     }
 }
 
 function openMobileMenu(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    const track = Store.currentTrack;
-    if (!track) return;
-    
-    const overlay = document.getElementById('modal-overlay');
-    overlay.style.display = 'flex';
-    overlay.style.zIndex = '3000'; // above fullscreen player (z-index 2000)
-    
-    let html = `<div class="modal-box" onclick="event.stopPropagation()">
-        <!-- Handle for bottom drawer -->
-        <div class="drawer-handle" style="width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 0 auto 20px;"></div>
-        
-        <!-- Track Mini Header -->
-        <div style="display:flex; align-items:center; gap: 16px; margin-bottom: 20px; text-align: left;">
-            <img src="${track.thumbnail || FALLBACK_IMG}" style="width: 52px; height: 52px; border-radius: 6px; object-fit: cover; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-            <div style="min-width: 0; flex: 1;">
-                <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${escapeHtml(track.title)}</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">${escapeHtml(track.channel?.name || '')}</p>
-            </div>
-        </div>
-        
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">`;
-    
-    // Always show "Add to Playlist" section header
-    html += `<p style="font-size:0.8rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem;font-weight:600;">Add to Playlist</p>`;
-    
-    if (Store.playlists.length > 0) {
-        Store.playlists.forEach(pl => {
-            const hasSong = pl.tracks.some(t => t.id === track.id);
-            html += `<button class="action-btn secondary" style="justify-content:flex-start;width:100%;height:48px;border-radius:12px;font-size:0.95rem;font-weight:500;" onclick="togglePlaylistSong('${pl.id}')">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 12px; color: ${hasSong ? 'var(--primary-color)' : 'var(--text-secondary)'};"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-                ${hasSong ? '✓' : '+'} ${escapeHtml(pl.name)}
-            </button>`;
-        });
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
-    
-    // Always offer the option to create a new playlist
-    html += `<button class="action-btn primary" style="width:100%;height:48px;border-radius:12px;font-size:0.95rem;font-weight:600;justify-content:center;" onclick="closeModal(); promptCreatePlaylistAndAdd()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Create New Playlist
-    </button>`;
-    
-    html += `
-            <button class="modal-btn cancel" style="margin-top:0.5rem;width:100%;height:48px;border-radius:24px;font-size:0.95rem;font-weight:600;" onclick="closeModal()">Cancel</button>
-        </div>
-    </div>`;
-    
-    overlay.innerHTML = html;
+    const track = Store.currentTrack;
+    if (track) {
+        showAddToPlaylistModal(track);
+    }
 }
 
 function togglePlaylistSong(playlistId) {
@@ -768,7 +923,7 @@ function setupBackButton() {
         if (popupSearch && popupSearch.style.display !== 'none' && popupSearch.style.display !== '') {
             popupSearch.style.display = 'none';
             const floatingSearch = document.getElementById('floating-search-container');
-            if (floatingSearch && !window.location.hash.startsWith('#/search')) {
+            if (floatingSearch && !window.location.hash.startsWith('#/search') && !window.location.hash.startsWith('#/settings')) {
                 floatingSearch.style.display = 'flex';
             }
         }
@@ -1276,7 +1431,8 @@ function setupFloatingSearchSuggestions() {
         clearTimeout(floatingSearchTimer);
         floatingSearchTimer = setTimeout(() => {
             if (q) {
-                navigate(`/search?q=${encodeURIComponent(q)}`);
+                const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs';
+                navigate(`/search?q=${encodeURIComponent(q)}&type=${activeType}`);
             }
         }, 400);
     });
@@ -1300,7 +1456,8 @@ function setupFloatingSearchSuggestions() {
         input.value = val;
         input.blur();
         collapseFloatingSearch();
-        navigate(`/search?q=${encodeURIComponent(val)}`);
+        const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs';
+        navigate(`/search?q=${encodeURIComponent(val)}&type=${activeType}`);
     };
 
     window.hideFloatingSearchSuggestions = hideAndCancel;
@@ -1387,7 +1544,8 @@ function performFloatingSearch() {
         }
         input.blur();
         collapseFloatingSearch();
-        navigate('/search?q=' + encodeURIComponent(query));
+        const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs';
+        navigate(`/search?q=${encodeURIComponent(query)}&type=${activeType}`);
     }
 }
 
@@ -1425,7 +1583,7 @@ function closePopupSearch() {
             }
         } catch (e) {}
     }
-    if (floatingSearch && !window.location.hash.startsWith('#/search')) {
+    if (floatingSearch && !window.location.hash.startsWith('#/search') && !window.location.hash.startsWith('#/settings')) {
         floatingSearch.style.display = 'flex';
     }
 }
@@ -1703,12 +1861,17 @@ function showAddToPlaylistModal(track) {
         playlistsHtml = '<div class="modal-playlists-list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 12px 0;">';
         Store.playlists.forEach(pl => {
             const hasSong = pl.tracks.some(t => t.id === track.id);
+            const checkIcon = hasSong 
+                ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
             playlistsHtml += `<div class="modal-playlist-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); cursor: pointer;" onclick="event.stopPropagation(); toggleSongInPlaylist('${pl.id}', ${escapeAttr(JSON.stringify(track))}, this)">
                 <div style="display: flex; flex-direction: column;">
                     <span style="font-weight: 500; font-size: 0.95rem; color: var(--text-primary);">${escapeHtml(pl.name)}</span>
                     <span class="pl-count-sub" style="font-size: 0.8rem; color: var(--text-muted); transition: transform 0.2s ease;">${pl.tracks.length} songs</span>
                 </div>
-                <span class="playlist-check-indicator" style="font-size: 1.1rem; color: ${hasSong ? '#a78bfa' : 'transparent'};">✓</span>
+                <div class="playlist-check-indicator" style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:${hasSong ? 'var(--primary-color)' : 'rgba(255,255,255,0.08)'};color:${hasSong ? '#000000' : 'rgba(255,255,255,0.3)'};transition:all 0.2s ease;">
+                    ${checkIcon}
+                </div>
             </div>`;
         });
         playlistsHtml += '</div>';
@@ -1732,6 +1895,7 @@ function showAddToPlaylistModal(track) {
         </div>
     </div>`;
 }
+
 function toggleSongInPlaylist(playlistId, track, el) {
     const pl = Store.playlists.find(p => p.id === playlistId);
     if (!pl) return;
@@ -1739,30 +1903,37 @@ function toggleSongInPlaylist(playlistId, track, el) {
     const indicator = el ? el.querySelector('.playlist-check-indicator') : null;
     const countEl = el ? el.querySelector('.pl-count-sub') : null;
     
+    const checkSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    const plusSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+
     if (hasSong) {
         Store.removeFromPlaylist(playlistId, track.id);
+        const updatedPl = Store.playlists.find(p => p.id === playlistId);
+        const newCount = updatedPl ? updatedPl.tracks.length : 0;
         if (indicator) {
-            indicator.style.color = 'transparent';
-            indicator.style.transform = 'scale(0.8)';
+            indicator.style.background = 'rgba(255,255,255,0.08)';
+            indicator.style.color = 'rgba(255,255,255,0.3)';
+            indicator.innerHTML = plusSvg;
+            indicator.style.transform = 'scale(0.85)';
             setTimeout(() => indicator.style.transform = 'scale(1)', 200);
         }
         if (countEl) {
-            countEl.textContent = `${pl.tracks.length} songs`;
-            countEl.style.transform = 'scale(1.15)';
-            setTimeout(() => countEl.style.transform = 'scale(1)', 200);
+            countEl.textContent = `${newCount} songs`;
         }
         showToast(`Removed from ${pl.name}`);
     } else {
         Store.addToPlaylist(playlistId, track);
+        const updatedPl = Store.playlists.find(p => p.id === playlistId);
+        const newCount = updatedPl ? updatedPl.tracks.length : 0;
         if (indicator) {
-            indicator.style.color = '#a78bfa';
-            indicator.style.transform = 'scale(1.3)';
+            indicator.style.background = 'var(--primary-color)';
+            indicator.style.color = '#000000';
+            indicator.innerHTML = checkSvg;
+            indicator.style.transform = 'scale(1.2)';
             setTimeout(() => indicator.style.transform = 'scale(1)', 200);
         }
         if (countEl) {
-            countEl.textContent = `${pl.tracks.length} songs`;
-            countEl.style.transform = 'scale(1.15)';
-            setTimeout(() => countEl.style.transform = 'scale(1)', 200);
+            countEl.textContent = `${newCount} songs`;
         }
         showToast(`Added to ${pl.name}`);
     }
@@ -2113,7 +2284,7 @@ function openAppearanceModal() {
 
     const colorItems = [
         { key: 'primaryColor', label: 'Primary Accent', presets: ['#1DB954', '#00F2FE', '#FF007F', '#a855f7', '#f59e0b', '#ef4444', '#ffffff', '#10b981'] },
-        { key: 'bgColor', label: 'App Background', presets: ['#121212', '#000000', '#0d021a', '#1a090d', '#120d1c', '#061712', '#1c150c', 'rgba(18,18,18,0.65)'] },
+        { key: 'bgColor', label: 'App Background', presets: ['transparent', '#121212', '#000000', '#0d021a', '#1a090d', '#120d1c', '#061712', '#1c150c', 'rgba(18,18,18,0.65)'] },
         { key: 'surfaceColor', label: 'Card Surface', presets: ['#181818', '#0a0a0a', '#1a0533', '#2b0f16', 'rgba(255,255,255,0.06)', 'rgba(0,0,0,0.4)', '#282828', 'transparent'] },
         { key: 'textPrimary', label: 'Primary Text', presets: ['#ffffff', '#00ffff', '#fff0f2', '#f5f3ff', '#ecfdf5', '#fffbeb', '#e2e8f0', '#10b981'] },
         { key: 'textSecondary', label: 'Secondary Text', presets: ['#b3b3b3', '#888888', '#b967ff', '#d697a3', '#a78bfa', '#6ee7b7', '#fcd34d', '#94a3b8'] },
@@ -2143,9 +2314,9 @@ function openAppearanceModal() {
                     </div>
                     <div class="custom-color-inputs">
                         <input type="text" id="color-hex-${item.key}" class="custom-hex-input" value="${val.toUpperCase()}" onchange="updateCustomColor('${item.key}', this.value)">
-                        <div class="color-picker-button-wrapper" title="Open Color Wheel">
-                            <button class="action-btn secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;border-radius:var(--radius-full)" onclick="openColorWheelModal('${item.key}', '${val}')">Wheel 🎨</button>
-                        </div>
+                        <button class="color-picker-wheel-btn" title="Open Color Wheel" onclick="openColorWheelModal('${item.key}', '${val}')">
+                            <span class="wheel-center-dot" style="background:${isPickerVal};"></span>
+                        </button>
                     </div>
                 </div>
                 <div class="color-preset-pills">
@@ -2170,11 +2341,9 @@ function openAppearanceModal() {
             </div>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 10px 0">Makes app cards, sidebar, and controls translucent frosted glass so your wallpaper & custom background shine through!</p>
             
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-                <button class="chip ${glassMode === 'none' ? 'active' : ''}" style="${glassMode === 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('none')">Solid (Off)</button>
-                <button class="chip ${glassMode === 'subtle' ? 'active' : ''}" style="${glassMode === 'subtle' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('subtle')">Subtle Glass</button>
-                <button class="chip ${glassMode === 'frosted' ? 'active' : ''}" style="${glassMode === 'frosted' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('frosted')">Frosted Glass</button>
-                <button class="chip ${glassMode === 'clear' ? 'active' : ''}" style="${glassMode === 'clear' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('clear')">Ultra Clear</button>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                <button class="chip ${glassMode === 'none' ? 'active' : ''}" style="${glassMode === 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('none')">Off</button>
+                <button class="chip ${glassMode !== 'none' ? 'active' : ''}" style="${glassMode !== 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('frosted')">On (Glassmorphism)</button>
             </div>
 
             ${glassMode !== 'none' ? `

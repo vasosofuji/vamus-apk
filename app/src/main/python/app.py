@@ -158,10 +158,13 @@ def api_search():
             results = yt.search(q, filter='artists')
             mapped = []
             for a in results:
+                raw_thumb = a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else ''
+                if raw_thumb and raw_thumb.startswith('//'):
+                    raw_thumb = 'https:' + raw_thumb
                 mapped.append({
                     'id': a.get('browseId'),
                     'name': a.get('artist') or a.get('title') or '',
-                    'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
+                    'thumbnail': raw_thumb,
                     'type': 'artist',
                 })
             return jsonify(mapped)

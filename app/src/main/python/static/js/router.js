@@ -25,7 +25,7 @@ const Router = {
 
         const floatingSearch = document.getElementById('floating-search-container');
         if (floatingSearch) {
-            if (path === '/search' || path.startsWith('/search?')) {
+            if (path === '/search' || path.startsWith('/search?') || path === '/settings' || path.startsWith('/settings')) {
                 floatingSearch.style.display = 'none';
                 if (typeof collapseFloatingSearch === 'function') {
                     collapseFloatingSearch();

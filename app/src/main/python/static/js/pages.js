@@ -12,20 +12,23 @@ const FALLBACK_IMG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000
 
 function getTrackThumbnail(t) {
     if (!t) return FALLBACK_IMG;
-    if (typeof t === 'string' && t.length > 5) return t;
+    if (typeof t === 'string' && t.length > 5) {
+        return t.startsWith('//') ? 'https:' + t : t;
+    }
     let url = t.thumbnail || t.cover || t.image || t.coverImage || t.albumArt || t.album_art || (t.thumbnails && t.thumbnails.length ? (t.thumbnails[t.thumbnails.length - 1].url || t.thumbnails[0].url || t.thumbnails[0]) : '');
     if (!url || typeof url !== 'string' || url.includes('undefined') || url.includes('null')) return FALLBACK_IMG;
+    if (url.startsWith('//')) url = 'https:' + url;
     return url;
 }
 
 const GENRES = [
-    { id: 'pop', name: 'Pop', color: 'linear-gradient(135deg, #FF6B6B, #FF8E53)' },
+    { id: 'techno', name: 'Techno', color: 'linear-gradient(135deg, #00F2FE, #4FACFE)' },
+    { id: 'grunge', name: 'Grunge', color: 'linear-gradient(135deg, #434343, #000000)' },
     { id: 'rock', name: 'Rock', color: 'linear-gradient(135deg, #4A00E0, #8E2DE2)' },
     { id: 'hiphop', name: 'Hip Hop', color: 'linear-gradient(135deg, #11998E, #38EF7D)' },
     { id: 'electronic', name: 'Electronic', color: 'linear-gradient(135deg, #2193b0, #6dd5ed)' },
     { id: 'rnb', name: 'R&B', color: 'linear-gradient(135deg, #cc2b5e, #753a88)' },
     { id: 'jazz', name: 'Jazz', color: 'linear-gradient(135deg, #B79891, #94716B)' },
-    { id: 'classical', name: 'Classical', color: 'linear-gradient(135deg, #141E30, #243B55)' },
     { id: 'indie', name: 'Indie', color: 'linear-gradient(135deg, #3a7bd5, #3a6073)' },
     { id: 'country', name: 'Country', color: 'linear-gradient(135deg, #f2994a, #f2c94c)' },
     { id: 'metal', name: 'Metal', color: 'linear-gradient(135deg, #4b6cb7, #182848)' },
@@ -54,7 +57,7 @@ function renderTrackList(tracks, container, options = {}) {
         const artistName = track.channel?.name || track.artist || '';
         const durSec = track.durationInSec || track.duration || 0;
         const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
-        html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
+        html += `<div class="track-row ${isPlaying ? 'playing' : ''}" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
                 <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
@@ -107,8 +110,12 @@ function renderHomePage(container) {
             </a>`;
         }
         Store.playlists.forEach(pl => {
+            const coverBg = pl.coverImage
+                ? `background-image:url('${pl.coverImage}');background-size:cover;background-position:center;`
+                : (pl.customBgColor ? `background:linear-gradient(135deg,${pl.customBgColor},#7c3aed);` : '');
+            const coverContent = pl.coverImage ? '' : ICONS.music;
             html += `<a class="quick-card playlist-card" href="#/playlist/${pl.id}">
-                <div class="quick-card-icon">${ICONS.music}</div>
+                <div class="quick-card-icon" style="${coverBg}">${coverContent}</div>
                 <div class="quick-card-text"><span>${escapeHtml(pl.name)}</span><small>${pl.tracks.length} songs</small></div>
             </a>`;
         });
@@ -216,7 +223,7 @@ function renderSearchPage(container, path) {
     
     // Mobile search input
     html += `<div style="margin-bottom:1rem;display:none" class="mobile-search-inline">
-        <form onsubmit="event.preventDefault(); navigate('/search?q='+encodeURIComponent(document.getElementById('mobile-search-input').value))">
+        <form onsubmit="event.preventDefault(); const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs'; navigate('/search?q='+encodeURIComponent(document.getElementById('mobile-search-input').value)+'&type='+activeType)">
             <input id="mobile-search-input" type="text" value="${escapeHtml(isCategory ? '' : query)}" placeholder="Search songs, artists..." style="width:100%;padding:0.6rem 1rem;background:rgba(255,255,255,0.07);border:1px solid var(--border-color);border-radius:var(--radius-full);color:var(--text-primary);font-size:0.9rem;outline:none">
         </form>
     </div>`;
@@ -270,7 +277,7 @@ function renderSearchPage(container, path) {
             let grid = '<div class="card-grid">';
             results.forEach(a => {
                 grid += `<div class="artist-card" onclick="navigate('/artist/${encodeURIComponent(a.id)}')">
-                    <img class="artist-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+                    <img class="artist-card-img" src="${getTrackThumbnail(a)}" onerror="this.onerror=null;this.src=FALLBACK_IMG">
                     <div class="artist-card-name">${escapeHtml(a.name)}</div>
                     <div class="artist-card-type">Artist</div>
                 </div>`;
@@ -303,7 +310,7 @@ function renderSearchPage(container, path) {
 // ===== LIBRARY PAGE =====
 function renderLibraryPage(container) {
     let html = '<div class="animate-fade-up">';
-    html += '<div class="page-header"><h1>Your Library</h1></div>';
+    html += '<div class="page-header"><h1 class="home-greeting">Your Library</h1></div>';
     
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
         <h2 class="section-title" style="margin:0">Playlists</h2>
@@ -401,7 +408,7 @@ function renderPlaylistPage(container, id) {
         </div>
     </div>`;
     
-    html += '<div class="hero-actions">';
+    html += '<div class="hero-actions playlist-actions-row">';
     if (pl.tracks.length > 0) {
         html += `<button class="action-btn primary" onclick="Player.playTrack(Store.playlists.find(p=>p.id==='${pl.id}').tracks[0], Store.playlists.find(p=>p.id==='${pl.id}').tracks)">▶ Play All</button>`;
     }

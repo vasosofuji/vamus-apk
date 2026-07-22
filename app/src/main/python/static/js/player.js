@@ -717,7 +717,8 @@ const Player = {
         
         // Trigger animation on song change
         const infoPanel = document.getElementById('player-track-info');
-        if (infoPanel) {
+        if (infoPanel && this._lastTrackId !== track.id) {
+            this._lastTrackId = track.id;
             infoPanel.classList.remove('animate-song-change');
             void infoPanel.offsetWidth; // trigger reflow
             infoPanel.classList.add('animate-song-change');

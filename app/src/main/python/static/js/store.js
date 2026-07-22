@@ -32,17 +32,6 @@ const THEME_PRESETS = {
         textSecondary: '#888888',
         borderColor: '#1a1a1a'
     },
-    cyberpunk: {
-        name: 'Cyberpunk',
-        bgColor: '#0d021a',
-        surfaceColor: '#1a0533',
-        surfaceHover: '#2d0954',
-        primaryColor: '#ff007f',
-        primaryHover: '#ff3399',
-        textPrimary: '#00ffff',
-        textSecondary: '#b967ff',
-        borderColor: '#ff007f'
-    },
     sunset: {
         name: 'Sunset Crimson',
         bgColor: '#1a090d',
