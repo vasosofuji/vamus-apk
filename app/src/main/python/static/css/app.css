@@ -280,9 +280,42 @@ a { color: inherit; text-decoration: none; }
   width: 40px; height: 40px; border-radius: var(--radius-sm);
   object-fit: cover; flex-shrink: 0;
 }
+.row-text-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+}
 .row-name {
-  font-size: 0.95rem; font-weight: 500;
+  font-size: 0.92rem; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.row-artist-sub {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.row-artist-sub a {
+  color: var(--text-secondary);
+  transition: color 0.15s;
+}
+.row-artist-sub a:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.player-track-artist,
+.clickable-artist {
+  cursor: pointer;
+  transition: color 0.15s, opacity 0.15s;
+}
+.player-track-artist:hover,
+.clickable-artist:hover {
+  color: var(--primary-color) !important;
+  text-decoration: underline;
 }
 .col-artist {
   width: 200px; font-size: 0.85rem; color: var(--text-secondary);

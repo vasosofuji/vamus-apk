@@ -591,7 +591,7 @@ function showMobilePlayer() {
             <div class="mobile-player-info">
                 <div class="mobile-player-track-info animate-song-change" id="mobile-track-info-wrapper">
                     <h2 id="mobile-track-title">${escapeHtml(track.title || '')}</h2>
-                    <p id="mobile-track-artist">${escapeHtml(track.channel?.name || '')}</p>
+                    <p id="mobile-track-artist" class="clickable-artist" onclick="navigateToCurrentArtist(event)">${escapeHtml(track.channel?.name || '')}</p>
                 </div>
                 <button class="btn-icon like-btn ${liked ? 'active' : ''}" id="mobile-like-btn" onclick="toggleLikeCurrent(); updateMobilePlayerUI();">
                     ${liked ? ICONS.heartFilled : ICONS.heart}
@@ -640,6 +640,23 @@ function showMobilePlayer() {
         makeScrubber('mobile-progress-track', 'mobile-progress-fill', 'mobile-progress-thumb', 'mobile-current-time');
         setupMobilePlayerSwipe();
     }, 50);
+}
+
+function navigateToCurrentArtist(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const track = Store.currentTrack;
+    if (!track) return;
+
+    const overlay = document.getElementById('mobile-player-overlay');
+    if (overlay) overlay.style.display = 'none';
+
+    const artistId = track.channel?.id || track.artistId || track.channel?.name || track.artist;
+    if (artistId) {
+        Router.navigate('/artist/' + encodeURIComponent(artistId));
+    }
 }
 
 function openMobileMenu(event) {
