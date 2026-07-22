@@ -65,6 +65,7 @@ public class MainActivity extends BridgeActivity {
         if (nativeQueue.isEmpty() || nativeCurrentTrackId == null) return null;
 
         if ("one".equals(nativeRepeat)) {
+            nativeRepeat = "none";
             for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
                 if (nativeCurrentTrackId.equals(t.trackId)) return t;
             }

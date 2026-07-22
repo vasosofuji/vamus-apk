@@ -79,11 +79,11 @@ const Player = {
     playTrack(track, newQueue = null) {
         // If we're in the middle of a crossfade, clean it up first
         this._cleanupCrossfade();
-
+        
         if (Store.currentTrack && Store.currentTrack.id !== track.id) {
             Store.history = [...Store.history, Store.currentTrack];
         }
-
+        
         Store.currentTrack = track;
         Store.isPlaying = true;
         if (newQueue) {
@@ -91,17 +91,15 @@ const Player = {
             Store.history = [];
         }
         Store.addToRecent(track);
-
-        // Sync to native media session. Order matters: set metadata + playback
-        // state BEFORE playUri so the notification the service promotes to
-        // foreground already has the right title/artist/MediaSession token.
+        
+        // Sync to native media session
         if (window.AndroidMediaSession) {
             window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '');
             window.AndroidMediaSession.updatePlaybackState(true, 0);
         }
-
+        
         const url = getApiUrl(`/api/stream?id=${track.id}`);
-
+        
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
             window.AndroidMediaSession.playUri(url, false, 0);
         } else {
@@ -112,92 +110,13 @@ const Player = {
             this.audio.volume = savedVol !== null ? parseFloat(savedVol) : 1;
             this.audio.play().catch(e => console.error('Play error:', e));
         }
-
+        
         this.showPlayerBar();
         this.updatePlayerUI();
         Store.emit('trackChanged');
-
-        // Push the next-up track to native so autoplay works when the screen
-        // is off and the WebView JS is throttled.
         this._pushNextTrackToNative();
     },
-
-    // Compute the next track (respecting shuffle/repeat) and hand its stream
-    // URL + metadata to the native layer. On track-completion, the native
-    // MediaPlayer will play this directly without needing to call back into JS.
-    _pushNextTrackToNative() {
-        if (!window.AndroidMediaSession) return;
-
-        if (typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-            const next = this._resolveNextTrack();
-            if (!next || !next.track) {
-                window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
-            } else {
-                const t = next.track;
-                const url = getApiUrl(`/api/stream?id=${t.id}`);
-                window.AndroidMediaSession.setNextTrackInfo(
-                    t.id || '',
-                    url,
-                    t.title || '',
-                    (t.channel && t.channel.name) || 'Unknown',
-                    t.thumbnail || ''
-                );
-            }
-        }
-
-        // Also push the full queue so native can keep advancing indefinitely
-        // when the WebView JS is throttled (screen off).
-        if (typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
-            const mapped = (Store.queue || []).map(t => ({
-                id: t.id || '',
-                title: t.title || '',
-                artist: (t.channel && t.channel.name) || 'Unknown',
-                thumbnail: t.thumbnail || '',
-                streamUrl: getApiUrl(`/api/stream?id=${t.id}`),
-            }));
-            window.AndroidMediaSession.setPlaybackContext(
-                JSON.stringify(mapped),
-                (Store.currentTrack && Store.currentTrack.id) || '',
-                Store.repeat || 'none',
-                !!Store.shuffle
-            );
-        }
-    },
-
-    // Called from native code (see MediaPlaybackService.handleTrackEnded) after
-    // the native player has already advanced to the next track on its own.
-    // We reconcile Store + UI without re-triggering playback. Deliberately do
-    // NOT re-push the queue: native is authoritative here (it has been
-    // advancing while JS was frozen and may already be several tracks ahead
-    // of the events being replayed).
-    _onNativeAdvanced(nextTrackId) {
-        if (!nextTrackId) return;
-        const track = Store.queue.find(t => t.id === nextTrackId);
-        if (!track) return;
-        if (Store.currentTrack && Store.currentTrack.id !== track.id) {
-            Store.history = [...Store.history, Store.currentTrack];
-        }
-        Store.currentTrack = track;
-        Store.isPlaying = true;
-        Store.addToRecent(track);
-        this.showPlayerBar();
-        this.updatePlayerUI();
-        Store.emit('trackChanged');
-    },
-
-    // Called from native (MediaPlaybackService.onPlaybackStalled) when too many
-    // tracks in a row failed to play and it stopped trying. Reflect a paused
-    // state so the user sees playback stopped rather than an endless skip.
-    _onPlaybackStalled() {
-        Store.isPlaying = false;
-        this._fetchingRadio = false;
-        if (window.AndroidMediaSession &&
-            typeof window.AndroidMediaSession.updatePlaybackState === 'function') {
-            window.AndroidMediaSession.updatePlaybackState(false, 0);
-        }
-        this.updatePlayButton();
-    },
-
+    
     // Crossfade-aware version: starts the next track via crossfade instead of hard-cut
     _playTrackCrossfade(track) {
         if (Store.currentTrack && Store.currentTrack.id !== track.id) {
@@ -290,7 +209,7 @@ const Player = {
         Store.emit('trackChanged');
         this._pushNextTrackToNative();
     },
-
+    
     _cleanupCrossfade() {
         if (this._crossfadeInterval) {
             clearInterval(this._crossfadeInterval);
@@ -412,8 +331,16 @@ const Player = {
         if (this._isCrossfading) return;
         
         if (Store.repeat === 'one') {
-            this.audio.currentTime = 0;
-            this.audio.play();
+            Store.repeat = 'none';
+            this.updateRepeatUI();
+            this._pushNextTrackToNative();
+            if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
+                const url = getApiUrl(`/api/stream?id=${Store.currentTrack.id}`);
+                window.AndroidMediaSession.playUri(url, false, 0);
+            } else {
+                this.audio.currentTime = 0;
+                this.audio.play().catch(e => console.error('Play error:', e));
+            }
             return;
         }
         this.playNext();
@@ -503,13 +430,8 @@ const Player = {
         if (mobBtn) mobBtn.classList.toggle('active', Store.shuffle);
         this._pushNextTrackToNative();
     },
-
-    cycleRepeat() {
-        const modes = ['none', 'all', 'one'];
-        const idx = modes.indexOf(Store.repeat);
-        Store.repeat = modes[(idx + 1) % 3];
-        this._pushNextTrackToNative();
-        
+    
+    updateRepeatUI() {
         const btn = document.getElementById('repeat-btn');
         if (btn) {
             btn.classList.toggle('active', Store.repeat !== 'none');
@@ -523,6 +445,83 @@ const Player = {
             mobBtn.title = `Repeat: ${Store.repeat}`;
             mobBtn.innerHTML = REPEAT_ICONS[Store.repeat];
         }
+    },
+    
+    cycleRepeat() {
+        const modes = ['none', 'all', 'one'];
+        const idx = modes.indexOf(Store.repeat);
+        Store.repeat = modes[(idx + 1) % 3];
+        this.updateRepeatUI();
+        this._pushNextTrackToNative();
+    },
+
+    _pushNextTrackToNative() {
+        if (!window.AndroidMediaSession) return;
+
+        if (typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
+            const next = this._resolveNextTrack();
+            if (!next || !next.track) {
+                window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
+            } else {
+                const t = next.track;
+                const url = getApiUrl(`/api/stream?id=${t.id}`);
+                window.AndroidMediaSession.setNextTrackInfo(
+                    t.id || '',
+                    url,
+                    t.title || '',
+                    (t.channel && t.channel.name) || 'Unknown',
+                    t.thumbnail || ''
+                );
+            }
+        }
+
+        // Also push the full queue so native can keep advancing indefinitely
+        // when the WebView JS is throttled (screen off).
+        if (typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
+            const mapped = (Store.queue || []).map(t => ({
+                id: t.id || '',
+                title: t.title || '',
+                artist: (t.channel && t.channel.name) || t.artist || 'Unknown',
+                thumbnail: t.thumbnail || '',
+                streamUrl: getApiUrl(`/api/stream?id=${t.id}`),
+            }));
+            window.AndroidMediaSession.setPlaybackContext(
+                JSON.stringify(mapped),
+                (Store.currentTrack && Store.currentTrack.id) || '',
+                Store.repeat || 'none',
+                !!Store.shuffle
+            );
+        }
+    },
+
+    _onNativeAdvanced(nextTrackId) {
+        if (!nextTrackId) return;
+        const track = Store.queue.find(t => t.id === nextTrackId);
+        if (!track) return;
+        if (Store.repeat === 'one' && Store.currentTrack && Store.currentTrack.id === track.id) {
+            Store.repeat = 'none';
+            this.updateRepeatUI();
+            this._pushNextTrackToNative();
+        }
+        if (Store.currentTrack && Store.currentTrack.id !== track.id) {
+            Store.history = [...Store.history, Store.currentTrack];
+        }
+        Store.currentTrack = track;
+        Store.isPlaying = true;
+        Store.addToRecent(track);
+        this.showPlayerBar();
+        this.updatePlayerUI();
+        Store.emit('trackChanged');
+    },
+
+    _onPlaybackStalled() {
+        Store.isPlaying = false;
+        this._fetchingRadio = false;
+        if (window.AndroidMediaSession &&
+            typeof window.AndroidMediaSession.updatePlaybackState === 'function') {
+            window.AndroidMediaSession.updatePlaybackState(false, 0);
+        }
+        this.updatePlayButton();
     },
     
     updateProgress() {
@@ -660,11 +659,7 @@ const Player = {
         }
         
         // Sync repeat button icons
-        const rBtn = document.getElementById('repeat-btn');
-        if (rBtn) {
-            rBtn.classList.toggle('active', Store.repeat !== 'none');
-            rBtn.innerHTML = REPEAT_ICONS[Store.repeat];
-        }
+        this.updateRepeatUI();
         
         // Sync shuffle button active state
         const sBtn = document.getElementById('shuffle-btn');
@@ -673,6 +668,11 @@ const Player = {
         }
         
         this.updatePlayButton();
+        
+        // Sync mobile player overlay if open
+        if (typeof updateMobilePlayerUI === 'function') {
+            updateMobilePlayerUI();
+        }
         
         // Update page title
         document.title = track.title ? `${track.title} - Vamus` : 'Vamus';
@@ -718,3 +718,4 @@ function toggleLikeCurrent() {
         Player.updatePlayerUI();
     }
 }
+

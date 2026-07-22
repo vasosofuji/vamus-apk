@@ -20,6 +20,9 @@ const Store = {
     recentlyPlayed: [],
     shuffle: false,
     repeat: 'none', // 'none' | 'all' | 'one'
+    crossfadeEnabled: false,
+    crossfadeDuration: 5, // seconds (1-12)
+    autoplayEnabled: true, // auto-radio when queue ends
     
     // Event system for reactivity
     _listeners: {},
@@ -37,6 +40,13 @@ const Store = {
             this.likedSongs = JSON.parse(localStorage.getItem('likedSongs') || '[]');
             this.playlists = JSON.parse(localStorage.getItem('playlists') || '[]');
             this.recentlyPlayed = JSON.parse(localStorage.getItem('recentlyPlayed') || '[]');
+            // Playback settings
+            const cf = localStorage.getItem('crossfadeEnabled');
+            if (cf !== null) this.crossfadeEnabled = cf === 'true';
+            const cfd = localStorage.getItem('crossfadeDuration');
+            if (cfd !== null) this.crossfadeDuration = parseInt(cfd, 10) || 5;
+            const ap = localStorage.getItem('autoplayEnabled');
+            if (ap !== null) this.autoplayEnabled = ap === 'true';
         } catch(e) { console.error('Failed to load store', e); }
     },
     
@@ -45,6 +55,9 @@ const Store = {
         localStorage.setItem('likedSongs', JSON.stringify(this.likedSongs));
         localStorage.setItem('playlists', JSON.stringify(this.playlists));
         localStorage.setItem('recentlyPlayed', JSON.stringify(this.recentlyPlayed));
+        localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled));
+        localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration));
+        localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled));
     },
     
     // Liked songs

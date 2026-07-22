@@ -27,6 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     Store.on('trackChanged', () => {
+        // If mobile player overlay is open, re-render it to update current song name and art
+        const overlay = document.getElementById('mobile-player-overlay');
+        if (overlay && overlay.style.display === 'flex') {
+            showMobilePlayer();
+        }
+        
         // Simply update playing state class on track rows in DOM
         updateTrackRowsPlayingState();
     });
@@ -316,6 +322,221 @@ function setupMobilePlayerExpand() {
     });
 }
 
+function _getPrevTrack() {
+    if (!Store.currentTrack) return null;
+    let curTime = 0;
+    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
+        curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
+    } else if (Player.audio) {
+        curTime = Player.audio.currentTime;
+    }
+    if (curTime > 3) return Store.currentTrack;
+    if (Store.history.length > 0) return Store.history[Store.history.length - 1];
+    const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
+    if (idx > 0) return Store.queue[idx - 1];
+    return null;
+}
+
+function _getNextTrack() {
+    if (typeof Player !== 'undefined' && Player._resolveNextTrack) {
+        const res = Player._resolveNextTrack();
+        return res ? res.track : null;
+    }
+    return null;
+}
+
+function setupMobilePlayerSwipe() {
+    const container = document.getElementById('mobile-player-art-container');
+    const track = document.getElementById('mobile-player-carousel-track');
+    const slideCurrent = document.getElementById('art-slide-current');
+    const slidePrev = document.getElementById('art-slide-prev');
+    const slideNext = document.getElementById('art-slide-next');
+    if (!container || !track) return;
+
+    let startX = 0;
+    let startY = 0;
+    let deltaX = 0;
+    let isDragging = false;
+    let isHorizontal = false;
+    let containerWidth = container.offsetWidth || 320;
+    let hasPrev = false;
+    let hasNext = false;
+
+    function onPointerDown(e) {
+        if (e.target.closest('button')) return;
+        const pointer = e.touches ? e.touches[0] : e;
+        startX = pointer.clientX;
+        startY = pointer.clientY;
+        deltaX = 0;
+        isDragging = true;
+        isHorizontal = false;
+        containerWidth = container.offsetWidth || 320;
+        hasPrev = !!_getPrevTrack();
+        hasNext = !!_getNextTrack();
+        track.classList.remove('animating');
+    }
+
+    function onPointerMove(e) {
+        if (!isDragging) return;
+        const pointer = e.touches ? e.touches[0] : e;
+        const currentX = pointer.clientX;
+        const currentY = pointer.clientY;
+        const dx = currentX - startX;
+        const dy = currentY - startY;
+
+        if (!isHorizontal) {
+            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+                isHorizontal = true;
+            } else if (Math.abs(dy) > 10) {
+                isDragging = false;
+                return;
+            }
+        }
+
+        if (!isHorizontal) return;
+
+        if (e.cancelable) e.preventDefault();
+
+        deltaX = dx;
+
+        if (deltaX < 0 && !hasNext) {
+            deltaX = deltaX * 0.3;
+        } else if (deltaX > 0 && !hasPrev) {
+            deltaX = deltaX * 0.3;
+        }
+
+        track.style.transform = `translateX(${deltaX}px)`;
+
+        const ratio = Math.abs(deltaX) / containerWidth;
+        if (slideCurrent) {
+            slideCurrent.style.transform = `scale(${Math.max(0.85, 1 - ratio * 0.15)})`;
+            slideCurrent.style.opacity = Math.max(0.4, 1 - ratio * 0.6);
+        }
+
+        if (deltaX < 0 && slideNext) {
+            slideNext.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
+            slideNext.style.transform = `translateX(calc(110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
+        } else if (deltaX > 0 && slidePrev) {
+            slidePrev.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
+            slidePrev.style.transform = `translateX(calc(-110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
+        }
+    }
+
+    function onPointerEnd() {
+        if (!isDragging) return;
+        isDragging = false;
+        track.classList.add('animating');
+
+        const threshold = containerWidth * 0.22;
+        if (deltaX < -threshold && hasNext) {
+            track.style.transform = 'translateX(-110%)';
+            if (slideCurrent) slideCurrent.style.opacity = '0.3';
+            if (slideNext) {
+                slideNext.style.opacity = '1';
+                slideNext.style.transform = 'translateX(0) scale(1)';
+            }
+            setTimeout(() => {
+                playNext();
+            }, 180);
+        } else if (deltaX > threshold && hasPrev) {
+            track.style.transform = 'translateX(110%)';
+            if (slideCurrent) slideCurrent.style.opacity = '0.3';
+            if (slidePrev) {
+                slidePrev.style.opacity = '1';
+                slidePrev.style.transform = 'translateX(0) scale(1)';
+            }
+            setTimeout(() => {
+                playPrev();
+            }, 180);
+        } else {
+            track.style.transform = 'translateX(0px)';
+            if (slideCurrent) {
+                slideCurrent.style.transform = 'translateX(0) scale(1)';
+                slideCurrent.style.opacity = '1';
+            }
+            if (slidePrev) {
+                slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
+                slidePrev.style.opacity = '0.5';
+            }
+            if (slideNext) {
+                slideNext.style.transform = 'translateX(110%) scale(0.88)';
+                slideNext.style.opacity = '0.5';
+            }
+        }
+    }
+
+    container.addEventListener('touchstart', onPointerDown, { passive: true });
+    container.addEventListener('touchmove', onPointerMove, { passive: false });
+    container.addEventListener('touchend', onPointerEnd, { passive: true });
+    container.addEventListener('touchcancel', onPointerEnd, { passive: true });
+
+    container.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerEnd);
+}
+
+function updateMobilePlayerUI() {
+    const overlay = document.getElementById('mobile-player-overlay');
+    if (!overlay || overlay.style.display === 'none' || !Store.currentTrack) return;
+
+    const track = Store.currentTrack;
+    const bgImg = document.getElementById('mobile-player-bg-image');
+    if (bgImg) {
+        bgImg.style.backgroundImage = `url('${track.thumbnail || FALLBACK_IMG}')`;
+    }
+
+    const prevTrack = _getPrevTrack();
+    const nextTrack = _getNextTrack();
+    const artUrl = track.thumbnail || FALLBACK_IMG;
+    const prevArtUrl = prevTrack ? (prevTrack.thumbnail || FALLBACK_IMG) : '';
+    const nextArtUrl = nextTrack ? (nextTrack.thumbnail || FALLBACK_IMG) : '';
+
+    const slideCurrent = document.getElementById('art-slide-current');
+    const slidePrev = document.getElementById('art-slide-prev');
+    const slideNext = document.getElementById('art-slide-next');
+    const carouselTrack = document.getElementById('mobile-player-carousel-track');
+
+    if (carouselTrack) {
+        carouselTrack.classList.remove('animating');
+        carouselTrack.style.transform = 'translateX(0px)';
+    }
+
+    if (slideCurrent) {
+        slideCurrent.style.transform = 'translateX(0) scale(1)';
+        slideCurrent.style.opacity = '1';
+        slideCurrent.innerHTML = `<img src="${artUrl}" onerror="this.src='${FALLBACK_IMG}'">`;
+    }
+    if (slidePrev) {
+        slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
+        slidePrev.style.opacity = '0.5';
+        slidePrev.innerHTML = prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : '';
+    }
+    if (slideNext) {
+        slideNext.style.transform = 'translateX(110%) scale(0.88)';
+        slideNext.style.opacity = '0.5';
+        slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : '';
+    }
+
+    const titleEl = document.getElementById('mobile-track-title');
+    const artistEl = document.getElementById('mobile-track-artist');
+    if (titleEl) titleEl.textContent = track.title || '';
+    if (artistEl) artistEl.textContent = track.channel?.name || '';
+
+    const infoWrapper = document.getElementById('mobile-track-info-wrapper');
+    if (infoWrapper) {
+        infoWrapper.classList.remove('animate-song-change');
+        void infoWrapper.offsetWidth;
+        infoWrapper.classList.add('animate-song-change');
+    }
+
+    const likeBtn = document.getElementById('mobile-like-btn');
+    if (likeBtn) {
+        const liked = Store.isLiked(track.id);
+        likeBtn.classList.toggle('active', liked);
+        likeBtn.innerHTML = liked ? ICONS.heartFilled : ICONS.heart;
+    }
+}
+
 function showMobilePlayer() {
     const overlay = document.getElementById('mobile-player-overlay');
     if (!overlay || !Store.currentTrack) return;
@@ -323,12 +544,23 @@ function showMobilePlayer() {
     const track = Store.currentTrack;
     const isPlaying = Store.isPlaying;
     const liked = Store.isLiked(track.id);
-    const duration = Player.audio.duration || 0;
-    const current = Player.audio.currentTime || 0;
+    const duration = Player.audio ? (Player.audio.duration || 0) : 0;
+    const current = Player.audio ? (Player.audio.currentTime || 0) : 0;
     const pct = duration > 0 ? (current / duration) * 100 : 0;
     
+    const prevTrack = _getPrevTrack();
+    const nextTrack = _getNextTrack();
+    const artUrl = track.thumbnail || FALLBACK_IMG;
+    const prevArtUrl = prevTrack ? (prevTrack.thumbnail || FALLBACK_IMG) : '';
+    const nextArtUrl = nextTrack ? (nextTrack.thumbnail || FALLBACK_IMG) : '';
+
     overlay.style.display = 'flex';
     overlay.innerHTML = `
+        <div class="mobile-player-bg" id="mobile-player-bg">
+            <div class="mobile-player-bg-image" id="mobile-player-bg-image" style="background-image: url('${artUrl}')"></div>
+            <div class="mobile-player-bg-gradient"></div>
+        </div>
+
         <div class="mobile-player-header">
             <button class="btn-icon" onclick="document.getElementById('mobile-player-overlay').style.display='none'">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
@@ -340,14 +572,26 @@ function showMobilePlayer() {
         </div>
         
         <div class="mobile-player-content">
-            <img class="mobile-player-art" src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+            <div class="mobile-player-art-container" id="mobile-player-art-container">
+                <div class="mobile-player-carousel-track" id="mobile-player-carousel-track">
+                    <div class="mobile-player-art-slide slide-prev" id="art-slide-prev">
+                        ${prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : ''}
+                    </div>
+                    <div class="mobile-player-art-slide slide-current" id="art-slide-current">
+                        <img src="${artUrl}" onerror="this.src='${FALLBACK_IMG}'">
+                    </div>
+                    <div class="mobile-player-art-slide slide-next" id="art-slide-next">
+                        ${nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : ''}
+                    </div>
+                </div>
+            </div>
             
             <div class="mobile-player-info">
-                <div class="mobile-player-track-info">
-                    <h2>${escapeHtml(track.title || '')}</h2>
-                    <p>${escapeHtml(track.channel?.name || '')}</p>
+                <div class="mobile-player-track-info animate-song-change" id="mobile-track-info-wrapper">
+                    <h2 id="mobile-track-title">${escapeHtml(track.title || '')}</h2>
+                    <p id="mobile-track-artist">${escapeHtml(track.channel?.name || '')}</p>
                 </div>
-                <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="toggleLikeCurrent(); showMobilePlayer();">
+                <button class="btn-icon like-btn ${liked ? 'active' : ''}" id="mobile-like-btn" onclick="toggleLikeCurrent(); updateMobilePlayerUI();">
                     ${liked ? ICONS.heartFilled : ICONS.heart}
                 </button>
             </div>
@@ -392,6 +636,7 @@ function showMobilePlayer() {
     
     setTimeout(() => {
         makeScrubber('mobile-progress-track', 'mobile-progress-fill', 'mobile-progress-thumb', 'mobile-current-time');
+        setupMobilePlayerSwipe();
     }, 50);
 }
 

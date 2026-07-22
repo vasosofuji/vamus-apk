@@ -539,6 +539,38 @@ function renderSettingsPage(container) {
         <span id="api-server-save-msg" style="margin-left:0.75rem;color:var(--success-color);font-size:0.85rem"></span>
     </div>`;
     
+    // Playback Settings
+    html += `<div class="settings-section">
+        <h3>🎵 Playback</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+            <div>
+                <div style="font-weight:600;color:var(--text-primary)">Autoplay</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Automatically play similar songs when your queue ends</div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="autoplay-toggle" ${Store.autoplayEnabled ? 'checked' : ''} onchange="toggleAutoplay()">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+            <div>
+                <div style="font-weight:600;color:var(--text-primary)">Crossfade</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Smoothly blend between songs like YT Music</div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="crossfade-toggle" ${Store.crossfadeEnabled ? 'checked' : ''} onchange="toggleCrossfade()">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        <div id="crossfade-duration-section" style="margin-top:0.5rem;${Store.crossfadeEnabled ? '' : 'opacity:0.4;pointer-events:none;'}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                <span style="font-size:0.9rem;color:var(--text-primary)">Crossfade Duration</span>
+                <span id="crossfade-duration-label" style="font-size:0.9rem;color:var(--primary-color);font-weight:600">${Store.crossfadeDuration}s</span>
+            </div>
+            <input type="range" class="settings-range" id="crossfade-duration-slider" min="1" max="12" value="${Store.crossfadeDuration}" oninput="updateCrossfadeDuration(this.value)" style="width:100%">
+        </div>
+    </div>`;
+    
     // About
     html += `<div class="settings-section">
         <h3>ℹ️ About</h3>
@@ -569,4 +601,26 @@ function saveApiServerUrl() {
     localStorage.setItem('apiServerUrl', url);
     const msg = document.getElementById('api-server-save-msg');
     if (msg) { msg.textContent = '✓ Saved!'; setTimeout(() => msg.textContent = '', 2000); }
+}
+
+function toggleAutoplay() {
+    Store.autoplayEnabled = document.getElementById('autoplay-toggle').checked;
+    Store.save();
+}
+
+function toggleCrossfade() {
+    Store.crossfadeEnabled = document.getElementById('crossfade-toggle').checked;
+    Store.save();
+    const section = document.getElementById('crossfade-duration-section');
+    if (section) {
+        section.style.opacity = Store.crossfadeEnabled ? '1' : '0.4';
+        section.style.pointerEvents = Store.crossfadeEnabled ? 'auto' : 'none';
+    }
+}
+
+function updateCrossfadeDuration(val) {
+    Store.crossfadeDuration = parseInt(val, 10);
+    Store.save();
+    const label = document.getElementById('crossfade-duration-label');
+    if (label) label.textContent = val + 's';
 }
