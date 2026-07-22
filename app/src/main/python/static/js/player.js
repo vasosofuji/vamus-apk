@@ -685,8 +685,6 @@ const Player = {
                             const existingIds = new Set(Store.queue.map(t => t.id));
                             existingIds.add(Store.currentTrack?.id);
                             const newTracks = tracks.filter(t => !existingIds.has(t.id));
-                            if (newTracks.length === 0) return;
-                            Store.queue = [...Store.queue, ...newTracks];
                             const firstNew = newTracks[0];
                             if (!this._crossfadeTrackId || this._crossfadeTrackId !== firstNew.id) {
                                 this._playTrackCrossfade(firstNew);

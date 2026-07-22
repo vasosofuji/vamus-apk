@@ -377,8 +377,8 @@ function setupMobilePlayerSwipe() {
         isDragging = true;
         isHorizontal = false;
         containerWidth = container.offsetWidth || 320;
-        hasPrev = !!_getPrevTrack();
-        hasNext = !!_getNextTrack();
+        hasPrev = !!_getPrevTrack() || !!Store.currentTrack;
+        hasNext = !!_getNextTrack() || !!Store.currentTrack;
         track.classList.remove('animating');
     }
 
@@ -763,13 +763,25 @@ function createPlaylistAndAddTrack() {
 // Back button handling — close overlays first, then navigate back in hash history
 function setupBackButton() {
     document.addEventListener('backbutton', handleBackButton, false);
-    // Also handle the browser-level popstate for WebView back
     window.addEventListener('popstate', function(e) {
-        // popstate fires after the URL changed, so we just let the hashchange handler do its job
+        const popupSearch = document.getElementById('popup-search-overlay');
+        if (popupSearch && popupSearch.style.display !== 'none' && popupSearch.style.display !== '') {
+            popupSearch.style.display = 'none';
+            const floatingSearch = document.getElementById('floating-search-container');
+            if (floatingSearch && !window.location.hash.startsWith('#/search')) {
+                floatingSearch.style.display = 'flex';
+            }
+        }
     });
 }
 
 function handleBackButton() {
+    // Priority 0.5: close popup search overlay
+    const popupSearch = document.getElementById('popup-search-overlay');
+    if (popupSearch && popupSearch.style.display !== 'none' && popupSearch.style.display !== '') {
+        closePopupSearch();
+        return;
+    }
     // Priority 1: close modal
     const modal = document.getElementById('modal-overlay');
     if (modal && modal.style.display !== 'none' && modal.style.display !== '') {
@@ -1389,8 +1401,13 @@ function openPopupSearch(event) {
     if (event) event.stopPropagation();
     const overlay = document.getElementById('popup-search-overlay');
     const input = document.getElementById('popup-search-input');
+    const floatingSearch = document.getElementById('floating-search-container');
     if (!overlay) return;
+    if (floatingSearch) floatingSearch.style.display = 'none';
     overlay.style.display = 'flex';
+    try {
+        window.history.pushState({ popupSearch: true }, '');
+    } catch (e) {}
     if (input) {
         input.value = '';
         setTimeout(() => input.focus(), 80);
@@ -1399,7 +1416,18 @@ function openPopupSearch(event) {
 
 function closePopupSearch() {
     const overlay = document.getElementById('popup-search-overlay');
-    if (overlay) overlay.style.display = 'none';
+    const floatingSearch = document.getElementById('floating-search-container');
+    if (overlay && overlay.style.display !== 'none') {
+        overlay.style.display = 'none';
+        try {
+            if (window.history.state && window.history.state.popupSearch) {
+                window.history.back();
+            }
+        } catch (e) {}
+    }
+    if (floatingSearch && !window.location.hash.startsWith('#/search')) {
+        floatingSearch.style.display = 'flex';
+    }
 }
 
 function clearPopupSearch() {
