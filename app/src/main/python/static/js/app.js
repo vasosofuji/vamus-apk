@@ -156,17 +156,6 @@ function setupSearchSuggestions() {
                     });
             }, 250);
         }
-        
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => {
-            if (q) {
-                navigate(`/search?q=${encodeURIComponent(q)}`);
-            } else {
-                if (window.location.hash.startsWith('#/search')) {
-                    navigate('/search');
-                }
-            }
-        }, 400);
     });
     
     input.addEventListener('blur', () => {

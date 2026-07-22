@@ -557,9 +557,20 @@ a { color: inherit; text-decoration: none; }
 .empty-state h3 { color: var(--text-primary); }
 
 /* Spinner / loader */
+#page-content {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition: opacity 0.16s cubic-bezier(0.16, 1, 0.3, 1), transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+#page-content.page-transitioning {
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+}
+
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
@@ -571,7 +582,7 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; height: 300px; gap: 1rem; color: var(--text-secondary);
 }
-.animate-fade-up { animation: fadeUp 0.35s ease-out forwards; }
+.animate-fade-up { animation: fadeUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards; will-change: opacity, transform; }
 
 /* Lyrics overlay */
 .lyrics-overlay {

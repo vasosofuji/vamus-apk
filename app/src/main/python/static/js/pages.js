@@ -46,7 +46,7 @@ function renderTrackList(tracks, container, options = {}) {
         const artistName = track.channel?.name || track.artist || '';
         const durSec = track.durationInSec || track.duration || 0;
         const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
-        html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" style="animation-delay:${i * 0.03}s" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
+        html += `<div class="track-row ${isPlaying ? 'playing' : ''} animate-fade-up" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
                 <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
@@ -248,35 +248,47 @@ function renderSearchPage(container, path) {
         return;
     }
     
-    document.getElementById('search-results').innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
+    window._searchCache = window._searchCache || new Map();
+    const cacheKey = `${type}:${query.toLowerCase().trim()}`;
+    const resultsEl = document.getElementById('search-results');
+
+    const displaySearchResults = (results) => {
+        if (!resultsEl) return;
+        if (type === 'artists') {
+            if (!results || !results.length) {
+                resultsEl.innerHTML = '<div class="empty-state"><h3>No artists found</h3></div>';
+                return;
+            }
+            let grid = '<div class="card-grid">';
+            results.forEach(a => {
+                grid += `<div class="artist-card" onclick="navigate('/artist/${encodeURIComponent(a.id)}')">
+                    <img class="artist-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+                    <div class="artist-card-name">${escapeHtml(a.name)}</div>
+                    <div class="artist-card-type">Artist</div>
+                </div>`;
+            });
+            grid += '</div>';
+            resultsEl.innerHTML = grid;
+        } else {
+            renderTrackList(results, resultsEl, { singleTrackQueue: true });
+        }
+    };
+
+    if (window._searchCache.has(cacheKey)) {
+        displaySearchResults(window._searchCache.get(cacheKey));
+    } else {
+        resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
+    }
     
     fetch(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
         .then(r => r.json())
         .then(results => {
-            const resultsEl = document.getElementById('search-results');
-            if (!resultsEl) return;
-            
-            if (type === 'artists') {
-                if (!results.length) {
-                    resultsEl.innerHTML = '<div class="empty-state"><h3>No artists found</h3></div>';
-                    return;
-                }
-                let grid = '<div class="card-grid">';
-                results.forEach(a => {
-                    grid += `<div class="artist-card" onclick="navigate('/artist/${encodeURIComponent(a.id)}')">
-                        <img class="artist-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
-                        <div class="artist-card-name">${escapeHtml(a.name)}</div>
-                        <div class="artist-card-type">Artist</div>
-                    </div>`;
-                });
-                grid += '</div>';
-                resultsEl.innerHTML = grid;
-            } else {
-                renderTrackList(results, resultsEl, { singleTrackQueue: true });
-            }
+            window._searchCache.set(cacheKey, results);
+            displaySearchResults(results);
         }).catch(() => {
-            const r = document.getElementById('search-results');
-            if (r) r.innerHTML = '<div class="empty-state"><h3>Search failed</h3></div>';
+            if (!window._searchCache.has(cacheKey) && resultsEl) {
+                resultsEl.innerHTML = '<div class="empty-state"><h3>Search failed</h3></div>';
+            }
         });
 }
 
