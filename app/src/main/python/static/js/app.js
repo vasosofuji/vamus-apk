@@ -1665,6 +1665,31 @@ function applyTheme(config) {
     root.style.setProperty('--text-secondary', theme.textSecondary || '#b3b3b3');
     root.style.setProperty('--border-color', theme.borderColor || '#282828');
 
+    // Glassmorphism Mode logic
+    const glassMode = theme.glassMode || 'none';
+    const glassBlur = theme.glassBlur !== undefined ? theme.glassBlur : 16;
+    const glassOpacity = theme.glassOpacity !== undefined ? theme.glassOpacity : 15;
+
+    root.style.setProperty('--glass-blur', `${glassBlur}px`);
+    root.style.setProperty('--glass-opacity', `${glassOpacity / 100}`);
+
+    if (glassMode !== 'none') {
+        document.body.classList.add('glass-mode');
+        document.body.setAttribute('data-glass-mode', glassMode);
+        
+        let opacityVal = glassOpacity / 100;
+        if (glassMode === 'subtle') opacityVal = Math.min(opacityVal, 0.20);
+        if (glassMode === 'frosted') opacityVal = Math.min(opacityVal, 0.35);
+        if (glassMode === 'clear') opacityVal = Math.max(opacityVal, 0.06);
+
+        root.style.setProperty('--surface-glass-bg', `rgba(255, 255, 255, ${opacityVal})`);
+        root.style.setProperty('--surface-glass-hover', `rgba(255, 255, 255, ${opacityVal + 0.1})`);
+        root.style.setProperty('--sidebar-glass-bg', `rgba(18, 18, 18, ${Math.max(opacityVal, 0.3)})`);
+    } else {
+        document.body.classList.remove('glass-mode');
+        document.body.removeAttribute('data-glass-mode');
+    }
+
     const layer = document.getElementById('app-wallpaper-layer');
     const overlay = document.getElementById('app-wallpaper-overlay');
     if (layer && overlay) {
@@ -1701,7 +1726,6 @@ function applyThemePreset(presetKey) {
     Store.save();
     applyTheme();
 
-    // Update active state in DOM directly without page re-renders or scroll jumping!
     document.querySelectorAll('.theme-preset-card').forEach(card => {
         const key = card.getAttribute('data-preset-key');
         if (key) {
@@ -1713,6 +1737,32 @@ function applyThemePreset(presetKey) {
     showToast(`Applied ${preset.name} theme`);
 }
 
+function updateGlassMode(mode) {
+    Store.theme.glassMode = mode;
+    Store.save();
+    applyTheme();
+    if (document.getElementById('appearance-modal-box')) {
+        openAppearanceModal();
+    }
+    showToast(`UI Style: ${mode === 'none' ? 'Solid' : mode.charAt(0).toUpperCase() + mode.slice(1) + ' Glass'}`);
+}
+
+function updateGlassBlur(val) {
+    Store.theme.glassBlur = parseInt(val, 10);
+    Store.save();
+    applyTheme();
+    const label = document.getElementById('glass-blur-label');
+    if (label) label.textContent = `${val}px`;
+}
+
+function updateGlassOpacity(val) {
+    Store.theme.glassOpacity = parseInt(val, 10);
+    Store.save();
+    applyTheme();
+    const label = document.getElementById('glass-opacity-label');
+    if (label) label.textContent = `${val}%`;
+}
+
 function updateCustomColor(key, hex) {
     if (!hex) return;
     Store.theme[key] = hex;
@@ -1722,8 +1772,14 @@ function updateCustomColor(key, hex) {
 
     const input = document.getElementById(`color-picker-${key}`);
     const hexInput = document.getElementById(`color-hex-${key}`);
-    if (input) input.value = hex;
+    const badge = document.getElementById(`color-badge-${key}`);
+    if (input && !hex.startsWith('rgba') && hex !== 'transparent') input.value = hex;
     if (hexInput) hexInput.value = hex.toUpperCase();
+    if (badge) badge.style.background = hex;
+
+    document.querySelectorAll(`.pill-${key}`).forEach(pill => {
+        pill.classList.toggle('active-pill', pill.getAttribute('data-hex') === hex);
+    });
 }
 
 function syncCustomColorInputsInDom() {
@@ -1731,9 +1787,11 @@ function syncCustomColorInputsInDom() {
     keys.forEach(k => {
         const input = document.getElementById(`color-picker-${k}`);
         const hexInput = document.getElementById(`color-hex-${k}`);
+        const badge = document.getElementById(`color-badge-${k}`);
         const val = Store.theme[k];
-        if (input && val) input.value = val;
+        if (input && val && !val.startsWith('rgba') && val !== 'transparent') input.value = val;
         if (hexInput && val) hexInput.value = val.toUpperCase();
+        if (badge && val) badge.style.background = val;
     });
 }
 
@@ -1748,6 +1806,9 @@ function resetThemeToDefault() {
         textPrimary: '#ffffff',
         textSecondary: '#b3b3b3',
         borderColor: '#282828',
+        glassMode: 'none',
+        glassBlur: 16,
+        glassOpacity: 15,
         wallpaperData: '',
         wallpaperBlur: 20,
         wallpaperOpacity: 50
@@ -1829,54 +1890,112 @@ function openAppearanceModal() {
     });
 
     const colorItems = [
-        { key: 'primaryColor', label: 'Primary Accent' },
-        { key: 'bgColor', label: 'App Background' },
-        { key: 'surfaceColor', label: 'Card Surface' },
-        { key: 'textPrimary', label: 'Primary Text' },
-        { key: 'textSecondary', label: 'Secondary Text' },
-        { key: 'borderColor', label: 'Border Color' }
+        { key: 'primaryColor', label: 'Primary Accent', presets: ['#1DB954', '#00F2FE', '#FF007F', '#a855f7', '#f59e0b', '#ef4444', '#ffffff', '#10b981'] },
+        { key: 'bgColor', label: 'App Background', presets: ['#121212', '#000000', '#0d021a', '#1a090d', '#120d1c', '#061712', '#1c150c', 'rgba(18,18,18,0.65)'] },
+        { key: 'surfaceColor', label: 'Card Surface', presets: ['#181818', '#0a0a0a', '#1a0533', '#2b0f16', 'rgba(255,255,255,0.06)', 'rgba(0,0,0,0.4)', '#282828', 'transparent'] },
+        { key: 'textPrimary', label: 'Primary Text', presets: ['#ffffff', '#00ffff', '#fff0f2', '#f5f3ff', '#ecfdf5', '#fffbeb', '#e2e8f0', '#10b981'] },
+        { key: 'textSecondary', label: 'Secondary Text', presets: ['#b3b3b3', '#888888', '#b967ff', '#d697a3', '#a78bfa', '#6ee7b7', '#fcd34d', '#94a3b8'] },
+        { key: 'borderColor', label: 'Border Color', presets: ['#282828', '#1a1a1a', '#ff007f', '#421721', 'rgba(255,255,255,0.12)', 'transparent', '#334155', '#475569'] }
     ];
 
-    let colorRowsHtml = '';
+    let colorCardsHtml = '';
     colorItems.forEach(item => {
         const val = Store.theme[item.key] || '#ffffff';
-        colorRowsHtml += `
-            <div class="custom-color-row">
-                <span class="custom-color-label">${item.label}</span>
-                <div class="custom-color-controls">
-                    <input type="text" id="color-hex-${item.key}" class="custom-hex-input" value="${val.toUpperCase()}" onchange="if(/^#[0-9A-F]{6}$/i.test(this.value)) updateCustomColor('${item.key}', this.value)">
-                    <input type="color" id="color-picker-${item.key}" class="color-input-swatch" value="${val}" oninput="updateCustomColor('${item.key}', this.value)">
+        const isPickerVal = (!val.startsWith('rgba') && val !== 'transparent') ? val : '#121212';
+
+        let pillsHtml = '';
+        item.presets.forEach(pColor => {
+            const isPillActive = val.toLowerCase() === pColor.toLowerCase();
+            const pillStyle = pColor === 'transparent' 
+                ? 'background:linear-gradient(135deg, rgba(255,255,255,0.3), rgba(0,0,0,0.5));border:1px dashed #fff;'
+                : `background:${pColor};`;
+            pillsHtml += `<div class="preset-pill pill-${item.key} ${isPillActive ? 'active-pill' : ''}" data-hex="${pColor}" style="${pillStyle}" title="${pColor}" onclick="updateCustomColor('${item.key}', '${pColor}')"></div>`;
+        });
+
+        colorCardsHtml += `
+            <div class="custom-color-card">
+                <div class="custom-color-card-top">
+                    <div class="custom-color-card-title">
+                        <div class="color-preview-badge" id="color-badge-${item.key}" style="background:${val}"></div>
+                        <span>${item.label}</span>
+                    </div>
+                    <div class="custom-color-inputs">
+                        <input type="text" id="color-hex-${item.key}" class="custom-hex-input" value="${val.toUpperCase()}" onchange="updateCustomColor('${item.key}', this.value)">
+                        <div class="color-picker-button-wrapper" title="Open Color Wheel">
+                            <input type="color" id="color-picker-${item.key}" class="color-input-swatch" value="${isPickerVal}" oninput="updateCustomColor('${item.key}', this.value)">
+                        </div>
+                    </div>
+                </div>
+                <div class="color-preset-pills">
+                    ${pillsHtml}
                 </div>
             </div>
         `;
     });
 
-    overlay.innerHTML = `<div class="modal-box" id="appearance-modal-box" onclick="event.stopPropagation()" style="max-width:540px;max-height:85vh;overflow-y:auto">
+    const glassMode = Store.theme.glassMode || 'none';
+
+    overlay.innerHTML = `<div class="modal-box" id="appearance-modal-box" onclick="event.stopPropagation()" style="max-width:580px;max-height:88vh;overflow-y:auto;padding:1.5rem 1.8rem">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 style="margin:0">🎨 Appearance & Customization</h3>
-            <button class="action-btn secondary" style="padding:0.2rem 0.6rem;font-size:0.8rem" onclick="closeModal()">✕</button>
+            <h3 style="margin:0;font-size:1.2rem">🎨 Appearance & Customization</h3>
+            <button class="action-btn secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem" onclick="closeModal()">✕</button>
         </div>
 
-        <div style="font-weight:600;font-size:0.9rem;margin-top:0.4rem;color:var(--text-primary)">Color Theme Presets</div>
+        <!-- GLASSMORPHISM & TRANSLUCENCY OPTIONS -->
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);padding:14px;margin-bottom:1.2rem">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:0.95rem;color:var(--text-primary);margin-bottom:4px">
+                <span>✨ Glassmorphism & Translucency Style</span>
+            </div>
+            <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 10px 0">Makes app cards, sidebar, and controls translucent frosted glass so your wallpaper & custom background shine through!</p>
+            
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                <button class="chip ${glassMode === 'none' ? 'active' : ''}" style="${glassMode === 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('none')">Solid (Off)</button>
+                <button class="chip ${glassMode === 'subtle' ? 'active' : ''}" style="${glassMode === 'subtle' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('subtle')">Subtle Glass</button>
+                <button class="chip ${glassMode === 'frosted' ? 'active' : ''}" style="${glassMode === 'frosted' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('frosted')">Frosted Glass</button>
+                <button class="chip ${glassMode === 'clear' ? 'active' : ''}" style="${glassMode === 'clear' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('clear')">Ultra Clear</button>
+            </div>
+
+            ${glassMode !== 'none' ? `
+                <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+                    <div>
+                        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
+                            <span>Frosted Glass Blur</span>
+                            <span id="glass-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassBlur || 16}px</span>
+                        </div>
+                        <input type="range" class="settings-range" min="4" max="32" value="${Store.theme.glassBlur || 16}" oninput="updateGlassBlur(this.value)" style="width:100%">
+                    </div>
+                    <div>
+                        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
+                            <span>Glass Surface Opacity</span>
+                            <span id="glass-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassOpacity || 15}%</span>
+                        </div>
+                        <input type="range" class="settings-range" min="5" max="60" value="${Store.theme.glassOpacity || 15}" oninput="updateGlassOpacity(this.value)" style="width:100%">
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+
+        <div style="font-weight:600;font-size:0.95rem;margin-top:0.4rem;color:var(--text-primary)">Color Theme Presets</div>
         <div class="theme-preset-grid">
             ${presetsHtml}
         </div>
 
         <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.2rem 0">
 
-        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom Color Palette</div>
-        <div class="custom-color-grid">
-            ${colorRowsHtml}
+        <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-weight:600;font-size:0.95rem;color:var(--text-primary)">Custom Color Palette</div>
+            <button class="action-btn secondary" style="padding:0.25rem 0.6rem;font-size:0.75rem" onclick="resetThemeToDefault()">Reset Palette</button>
         </div>
-
-        <div style="margin-top:1rem">
-            <button class="action-btn secondary" style="padding:0.4rem 0.8rem;font-size:0.8rem" onclick="resetThemeToDefault()">Reset Theme to Default</button>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin:4px 0 10px 0">Tap any preset pill, type a hex code, or click the color wheel to customize.</p>
+        
+        <div class="custom-color-grid">
+            ${colorCardsHtml}
         </div>
 
         <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:1.2rem 0">
 
-        <div style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">Custom Background Wallpaper</div>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px">Set a custom background image for the entire app.</p>
+        <div style="font-weight:600;font-size:0.95rem;color:var(--text-primary)">Custom Background Wallpaper</div>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-top:4px">Upload a photo to use as a full background wallpaper for the app.</p>
         
         <div style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;margin-bottom:1rem">
             <button class="action-btn primary" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="document.getElementById('modal-wallpaper-file-input').click()">Upload Wallpaper</button>
@@ -2024,10 +2143,6 @@ function openDangerZoneModal() {
         </div>
     </div>`;
 }
-
-/* =============================================
-   PER-PLAYLIST CUSTOMIZER MODAL
-   ============================================= */
 function openPlaylistCustomizerModal(playlistId) {
     const pl = Store.playlists.find(p => p.id === playlistId);
     if (!pl) return;

@@ -115,6 +115,9 @@ const Store = {
         textPrimary: '#ffffff',
         textSecondary: '#b3b3b3',
         borderColor: '#282828',
+        glassMode: 'none',
+        glassBlur: 16,
+        glassOpacity: 15,
         wallpaperData: '',
         wallpaperBlur: 20,
         wallpaperOpacity: 50
