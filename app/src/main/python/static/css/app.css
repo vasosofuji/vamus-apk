@@ -1323,9 +1323,9 @@ body[class*="glass-"] .track-row:hover {
 }
 
 /* =============================================
-   RESPONSIVE — MOBILE (max-width: 600px)
+   RESPONSIVE — MOBILE (max-width: 768px)
    ============================================= */
-@media (min-width: 0) {
+@media (max-width: 768px) {
   :root {
     --sidebar-width: 0px;
     --player-height: 56px;
@@ -1339,6 +1339,7 @@ body[class*="glass-"] .track-row:hover {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
     height: 100dvh;
+    overflow: hidden;
   }
   .app-container.has-player {
     grid-template-rows: 1fr;
@@ -1347,12 +1348,15 @@ body[class*="glass-"] .track-row:hover {
   .main-content {
     grid-column: 1;
     grid-row: 1;
-    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 14px;
-    padding-bottom: 78px; /* space for bottom-nav */
+    padding: calc(64px + env(safe-area-inset-top, 0px)) 14px 14px;
+    padding-bottom: 110px; /* space for bottom-nav */
     overflow-x: hidden;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    height: 100%;
   }
   .app-container.has-player .main-content {
-    padding-bottom: 140px; /* space for bottom-nav + player-bar + gaps */
+    padding-bottom: 160px; /* space for bottom-nav + player-bar + gaps */
   }
 
   .top-bar { padding: 0.75rem 0; }

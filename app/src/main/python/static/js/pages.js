@@ -185,12 +185,11 @@ function renderHomePage(container) {
             if (tracks && tracks.length > 0) {
                 renderTrackList(tracks, c, { singleTrackQueue: true });
             } else {
-                const s = document.getElementById('recs-section');
-                if (s) s.remove();
+                fetchFallbackHomeRecommendations(c);
             }
         }).catch(() => {
-            const s = document.getElementById('recs-section');
-            if (s) s.remove();
+            const c = document.getElementById('recs-container');
+            if (c) fetchFallbackHomeRecommendations(c);
         });
 
     // Fetch AI recs async — only when the user has configured a Gemini key
@@ -210,6 +209,23 @@ function renderHomePage(container) {
                 if (s) s.remove();
             });
     }
+}
+
+function fetchFallbackHomeRecommendations(container) {
+    if (!container) return;
+    fetch(getApiUrl('/api/search?q=top+hits&type=songs'))
+        .then(r => r.json())
+        .then(tracks => {
+            if (tracks && tracks.length > 0) {
+                renderTrackList(tracks.slice(0, 15), container, { singleTrackQueue: true });
+            } else {
+                const s = document.getElementById('recs-section');
+                if (s) s.remove();
+            }
+        }).catch(() => {
+            const s = document.getElementById('recs-section');
+            if (s) s.remove();
+        });
 }
 
 // ===== SEARCH PAGE =====
