@@ -677,48 +677,6 @@ function setupMobilePlayerSwipe() {
     window.addEventListener('mouseup', onPointerEnd);
 }
 
-function updateMobilePlayerUI() {
-    const overlay = document.getElementById('mobile-player-overlay');
-    if (!overlay || overlay.style.display === 'none' || !Store.currentTrack) return;
-
-    const track = Store.currentTrack;
-    const bgImg = document.getElementById('mobile-player-bg-image');
-    if (bgImg) {
-        bgImg.style.backgroundImage = `url('${getTrackThumbnail(track)}')`;
-    }
-
-    const prevTrack = _getPrevTrack();
-    const nextTrack = _getNextTrack();
-    const artUrl = getTrackThumbnail(track);
-    const prevArtUrl = prevTrack ? getTrackThumbnail(prevTrack) : '';
-    const nextArtUrl = nextTrack ? getTrackThumbnail(nextTrack) : '';
-
-    const slideCurrent = document.getElementById('art-slide-current');
-    const slidePrev = document.getElementById('art-slide-prev');
-    const slideNext = document.getElementById('art-slide-next');
-    const carouselTrack = document.getElementById('mobile-player-carousel-track');
-
-    if (carouselTrack) {
-        carouselTrack.classList.remove('animating');
-        carouselTrack.style.transform = 'translateX(0px)';
-    }
-
-    if (slideCurrent) {
-        slideCurrent.style.transform = 'translateX(0) scale(1)';
-        slideCurrent.style.opacity = '1';
-        slideCurrent.innerHTML = `<img src="${artUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
-    }
-    if (slidePrev) {
-        slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
-        slidePrev.style.opacity = '0.5';
-        slidePrev.innerHTML = prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
-    }
-    if (slideNext) {
-        slideNext.style.transform = 'translateX(110%) scale(0.88)';
-        slideNext.style.opacity = '0.5';
-        slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
-    }
-
     const titleEl = document.getElementById('mobile-track-title');
     const artistEl = document.getElementById('mobile-track-artist');
     if (titleEl) titleEl.textContent = track.title || '';

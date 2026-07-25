@@ -1323,6 +1323,15 @@ body[class*="glass-"] .track-row:hover {
 }
 
 /* =============================================
+   RESPONSIVE — DESKTOP HIDE FLOATING SEARCH
+   ============================================= */
+@media (min-width: 769px) {
+  .floating-search-container {
+    display: none !important;
+  }
+}
+
+/* =============================================
    RESPONSIVE — MOBILE (max-width: 768px)
    ============================================= */
 @media (max-width: 768px) {
@@ -1333,6 +1342,7 @@ body[class*="glass-"] .track-row:hover {
   }
 
   .sidebar { display: none; }
+  .top-bar { display: none !important; }
 
   /* Let main-content take full height. Player and bottom nav will float fixed. */
   .app-container {
@@ -1348,15 +1358,14 @@ body[class*="glass-"] .track-row:hover {
   .main-content {
     grid-column: 1;
     grid-row: 1;
-    padding: calc(64px + env(safe-area-inset-top, 0px)) 14px 14px;
-    padding-bottom: 110px; /* space for bottom-nav */
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 14px calc(80px + env(safe-area-inset-bottom, 0px));
     overflow-x: hidden;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
     height: 100%;
   }
   .app-container.has-player .main-content {
-    padding-bottom: 160px; /* space for bottom-nav + player-bar + gaps */
+    padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); /* space for bottom-nav + player-bar + gaps */
   }
 
   .top-bar { padding: 0.75rem 0; }
