@@ -2249,10 +2249,26 @@ function updateGlassMode(mode) {
     Store.theme.glassMode = mode;
     Store.save();
     applyTheme();
-    if (document.getElementById('appearance-modal-box')) {
-        openAppearanceModal();
+
+    const offBtn = document.getElementById('glass-btn-off');
+    const onBtn = document.getElementById('glass-btn-on');
+    const sliders = document.getElementById('glass-sliders-container');
+
+    if (offBtn && onBtn) {
+        const isOff = mode === 'none';
+        offBtn.classList.toggle('active', isOff);
+        offBtn.style.background = isOff ? 'var(--primary-color)' : '';
+        offBtn.style.color = isOff ? '#000' : '';
+        offBtn.style.borderColor = isOff ? 'var(--primary-color)' : '';
+
+        onBtn.classList.toggle('active', !isOff);
+        onBtn.style.background = !isOff ? 'var(--primary-color)' : '';
+        onBtn.style.color = !isOff ? '#000' : '';
+        onBtn.style.borderColor = !isOff ? 'var(--primary-color)' : '';
     }
-    showToast(`UI Style: ${mode === 'none' ? 'Solid' : mode.charAt(0).toUpperCase() + mode.slice(1) + ' Glass'}`);
+    if (sliders) {
+        sliders.style.display = mode !== 'none' ? 'flex' : 'none';
+    }
 }
 
 function updateGlassBlur(val) {
@@ -2300,6 +2316,10 @@ function syncCustomColorInputsInDom() {
         if (input && val && !val.startsWith('rgba') && val !== 'transparent') input.value = val;
         if (hexInput && val) hexInput.value = val.toUpperCase();
         if (badge && val) badge.style.background = val;
+
+        document.querySelectorAll(`.pill-${k}`).forEach(pill => {
+            pill.classList.toggle('active-pill', val && pill.getAttribute('data-hex')?.toLowerCase() === val.toLowerCase());
+        });
     });
 }
 
@@ -2323,28 +2343,30 @@ function resetThemeToDefault() {
     };
     Store.save();
     applyTheme();
-    if (document.getElementById('appearance-modal-box')) {
-        openAppearanceModal();
-    }
-    showToast('Reset theme to default');
+
+    document.querySelectorAll('.theme-preset-card').forEach(card => {
+        card.classList.toggle('active', card.getAttribute('data-preset-key') === 'default');
+    });
+
+    syncCustomColorInputsInDom();
+    updateGlassMode('none');
+    removeWallpaper();
 }
 
 function handleWallpaperUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    showToast('Processing wallpaper...');
 
     compressImageFile(file, 1280, 720, 0.75).then(base64 => {
         Store.theme.wallpaperData = base64;
         Store.save();
         applyTheme();
-        if (document.getElementById('appearance-modal-box')) {
-            openAppearanceModal();
-        }
-        showToast('Wallpaper applied!');
+        const removeBtn = document.getElementById('wallpaper-remove-btn');
+        const controls = document.getElementById('wallpaper-controls-container');
+        if (removeBtn) removeBtn.style.display = 'inline-block';
+        if (controls) controls.style.display = 'block';
     }).catch(e => {
         console.error('Wallpaper processing failed:', e);
-        showToast('Failed to process image');
     });
 }
 
@@ -2352,10 +2374,10 @@ function removeWallpaper() {
     Store.theme.wallpaperData = '';
     Store.save();
     applyTheme();
-    if (document.getElementById('appearance-modal-box')) {
-        openAppearanceModal();
-    }
-    showToast('Wallpaper removed');
+    const removeBtn = document.getElementById('wallpaper-remove-btn');
+    const controls = document.getElementById('wallpaper-controls-container');
+    if (removeBtn) removeBtn.style.display = 'none';
+    if (controls) controls.style.display = 'none';
 }
 
 function updateWallpaperBlur(val) {
@@ -2399,7 +2421,7 @@ function openAppearanceModal() {
 
     const colorItems = [
         { key: 'primaryColor', label: 'Primary Accent', presets: ['#1DB954', '#00F2FE', '#FF007F', '#a855f7', '#f59e0b', '#ef4444', '#ffffff', '#10b981'] },
-        { key: 'bgColor', label: 'App Background', presets: ['transparent', '#121212', '#000000', '#0d021a', '#1a090d', '#120d1c', '#061712', '#1c150c', 'rgba(18,18,18,0.65)'] },
+        { key: 'bgColor', label: 'App Background', presets: ['#121212', '#000000', '#0d021a', '#1a090d', '#120d1c', '#061712', '#1c150c', 'transparent'] },
         { key: 'surfaceColor', label: 'Card Surface', presets: ['#181818', '#0a0a0a', '#1a0533', '#2b0f16', 'rgba(255,255,255,0.06)', 'rgba(0,0,0,0.4)', '#282828', 'transparent'] },
         { key: 'textPrimary', label: 'Primary Text', presets: ['#ffffff', '#00ffff', '#fff0f2', '#f5f3ff', '#ecfdf5', '#fffbeb', '#e2e8f0', '#10b981'] },
         { key: 'textSecondary', label: 'Secondary Text', presets: ['#b3b3b3', '#888888', '#b967ff', '#d697a3', '#a78bfa', '#6ee7b7', '#fcd34d', '#94a3b8'] },
@@ -2457,28 +2479,26 @@ function openAppearanceModal() {
             <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 10px 0">Makes app cards, sidebar, and controls translucent frosted glass so your wallpaper & custom background shine through!</p>
             
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-                <button class="chip ${glassMode === 'none' ? 'active' : ''}" style="${glassMode === 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('none')">Off</button>
-                <button class="chip ${glassMode !== 'none' ? 'active' : ''}" style="${glassMode !== 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('frosted')">On (Glassmorphism)</button>
+                <button id="glass-btn-off" class="chip ${glassMode === 'none' ? 'active' : ''}" style="${glassMode === 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('none')">Off</button>
+                <button id="glass-btn-on" class="chip ${glassMode !== 'none' ? 'active' : ''}" style="${glassMode !== 'none' ? 'background:var(--primary-color);color:#000;border-color:var(--primary-color);' : ''}" onclick="updateGlassMode('frosted')">On (Glassmorphism)</button>
             </div>
 
-            ${glassMode !== 'none' ? `
-                <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-                    <div>
-                        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
-                            <span>Frosted Glass Blur</span>
-                            <span id="glass-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassBlur || 16}px</span>
-                        </div>
-                        <input type="range" class="settings-range" min="4" max="32" value="${Store.theme.glassBlur || 16}" oninput="updateGlassBlur(this.value)" style="width:100%">
+            <div id="glass-sliders-container" style="display:${glassMode !== 'none' ? 'flex' : 'none'};flex-direction:column;gap:8px;margin-top:10px">
+                <div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
+                        <span>Frosted Glass Blur</span>
+                        <span id="glass-blur-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassBlur || 16}px</span>
                     </div>
-                    <div>
-                        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
-                            <span>Glass Surface Opacity</span>
-                            <span id="glass-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassOpacity || 15}%</span>
-                        </div>
-                        <input type="range" class="settings-range" min="5" max="60" value="${Store.theme.glassOpacity || 15}" oninput="updateGlassOpacity(this.value)" style="width:100%">
-                    </div>
+                    <input type="range" class="settings-range" min="4" max="32" value="${Store.theme.glassBlur || 16}" oninput="updateGlassBlur(this.value)" style="width:100%">
                 </div>
-            ` : ''}
+                <div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-primary);margin-bottom:2px">
+                        <span>Glass Surface Opacity</span>
+                        <span id="glass-opacity-label" style="font-weight:600;color:var(--primary-color)">${Store.theme.glassOpacity || 15}%</span>
+                    </div>
+                    <input type="range" class="settings-range" min="5" max="60" value="${Store.theme.glassOpacity || 15}" oninput="updateGlassOpacity(this.value)" style="width:100%">
+                </div>
+            </div>
         </div>
 
         <div style="font-weight:600;font-size:0.95rem;margin-top:0.4rem;color:var(--text-primary)">Color Theme Presets</div>
@@ -2505,11 +2525,11 @@ function openAppearanceModal() {
         
         <div style="display:flex;align-items:center;gap:10px;margin-top:0.75rem;margin-bottom:1rem">
             <button class="action-btn primary" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="document.getElementById('modal-wallpaper-file-input').click()">Upload Wallpaper</button>
-            ${Store.theme.wallpaperData ? `<button class="action-btn danger" style="padding:0.4rem 0.9rem;font-size:0.85rem" onclick="removeWallpaper()">Remove Wallpaper</button>` : ''}
+            <button id="wallpaper-remove-btn" class="action-btn danger" style="padding:0.4rem 0.9rem;font-size:0.85rem;display:${Store.theme.wallpaperData ? 'inline-block' : 'none'}" onclick="removeWallpaper()">Remove Wallpaper</button>
             <input type="file" id="modal-wallpaper-file-input" accept="image/*" style="display:none" onchange="handleWallpaperUpload(event)">
         </div>
 
-        ${Store.theme.wallpaperData ? `
+        <div id="wallpaper-controls-container" style="display:${Store.theme.wallpaperData ? 'block' : 'none'}">
             <div style="margin-bottom:0.75rem">
                 <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:var(--text-primary);margin-bottom:4px">
                     <span>Wallpaper Blur</span>
@@ -2524,13 +2544,14 @@ function openAppearanceModal() {
                 </div>
                 <input type="range" class="settings-range" min="10" max="90" value="${Store.theme.wallpaperOpacity !== undefined ? Store.theme.wallpaperOpacity : 50}" oninput="updateWallpaperOpacity(this.value)" style="width:100%">
             </div>
-        ` : ''}
+        </div>
 
         <div class="modal-actions" style="margin-top:1.5rem">
             <button class="modal-btn create" onclick="closeModal()">Done</button>
         </div>
     </div>`;
 }
+
 
 function openAiRecommendationsModal() {
     const key = localStorage.getItem('geminiApiKey') || '';
