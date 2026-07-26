@@ -207,14 +207,15 @@ const Player = {
                 this._crossfadeInterval = setInterval(() => {
                     step++;
                     const progress = Math.min(step / steps, 1);
-                    // Smoothstep cubic ease curve for natural logarithmic volume transition
-                    const ease = progress * progress * (3 - 2 * progress);
+                    // Equal-Power Crossfade curve (constant acoustic energy, no volume dip!)
+                    const outVol = Math.cos(progress * Math.PI / 2);
+                    const inVol = Math.sin(progress * Math.PI / 2);
                     
                     if (oldAudio) {
-                        try { oldAudio.volume = Math.max(0, startVol * (1 - ease)); } catch(e) {}
+                        try { oldAudio.volume = Math.max(0, startVol * outVol); } catch(e) {}
                     }
                     if (this._crossfadeAudio) {
-                        try { this._crossfadeAudio.volume = Math.min(1, Math.max(0, targetVol * ease)); } catch(e) {}
+                        try { this._crossfadeAudio.volume = Math.min(1, Math.max(0, targetVol * inVol)); } catch(e) {}
                     }
                     
                     if (step >= steps) {
@@ -530,18 +531,41 @@ const Player = {
 
         if (typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
             const next = this._resolveNextTrack();
-            if (!next || !next.track) {
-                window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
-            } else {
+            if (next && next.track) {
                 const t = next.track;
                 const url = getApiUrl(`/api/stream?id=${t.id}`);
                 window.AndroidMediaSession.setNextTrackInfo(
                     t.id || '',
                     url,
                     t.title || '',
-                    (t.channel && t.channel.name) || 'Unknown',
+                    (t.channel && t.channel.name) || t.artist || 'Unknown',
                     t.thumbnail || ''
                 );
+            } else if (Store.autoplayEnabled && Store.currentTrack) {
+                // Pre-fetch next radio track into native Java so screen-off background playback works uninterrupted!
+                const track = Store.currentTrack;
+                const params = new URLSearchParams({
+                    id: track.id,
+                    title: track.title || '',
+                    artist: track.channel?.name || '',
+                });
+                fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
+                    .then(r => r.json())
+                    .then(tracks => {
+                        if (!tracks || !tracks.length || !window.AndroidMediaSession) return;
+                        const firstNew = tracks[0];
+                        const url = getApiUrl(`/api/stream?id=${firstNew.id}`);
+                        window.AndroidMediaSession.setNextTrackInfo(
+                            firstNew.id || '',
+                            url,
+                            firstNew.title || '',
+                            (firstNew.channel && firstNew.channel.name) || firstNew.artist || 'Unknown',
+                            firstNew.thumbnail || ''
+                        );
+                    })
+                    .catch(() => {});
+            } else {
+                window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
             }
         }
 

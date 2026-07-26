@@ -331,8 +331,8 @@ public class MediaPlaybackService extends Service {
     }
 
     private void rampCrossfade(final int durMs) {
-        final int steps = 20;
-        final int interval = Math.max(1, durMs / steps);
+        final int steps = 40;
+        final int interval = Math.max(10, durMs / steps);
         final float target = currentVolume;
         final int[] step = {0};
         final Runnable ramp = new Runnable() {
@@ -340,10 +340,12 @@ public class MediaPlaybackService extends Service {
             public void run() {
                 step[0]++;
                 float progress = Math.min(1f, (float) step[0] / steps);
-                float ease = progress * progress * (3 - 2 * progress);
+                // Equal-Power Crossfade curve: constant acoustic energy (no volume dip!)
+                float outVol = (float) Math.cos(progress * Math.PI / 2.0);
+                float inVol = (float) Math.sin(progress * Math.PI / 2.0);
                 try {
-                    if (player != null) player.setVolume(target * (1 - ease));
-                    if (crossfadePlayer != null) crossfadePlayer.setVolume(target * ease);
+                    if (player != null) player.setVolume(target * outVol);
+                    if (crossfadePlayer != null) crossfadePlayer.setVolume(target * inVol);
                 } catch (Exception ignored) {}
 
                 if (step[0] >= steps) {
@@ -454,19 +456,81 @@ public class MediaPlaybackService extends Service {
 
     private void advanceToNext() {
         MainActivity activity = MainActivity.getInstance();
-        if (activity == null) return;
-
-        NextTrackInfo next = activity.consumeNextTrackInfo();
-        if (next != null && next.streamUrl != null && !next.streamUrl.isEmpty()) {
-            dbg("advance -> native nextId=" + next.trackId);
-            activity.applyPendingNextMetadata(next);
-            startPlayback(next.streamUrl);
-            activity.triggerJsEvent("if (typeof Player !== 'undefined') { Player._onNativeAdvanced && Player._onNativeAdvanced(" + jsonQuote(next.trackId) + "); }");
-        } else {
-            dbg("advance -> no native next, calling JS playNext()");
-            activity.triggerJsEvent("playNext()");
+        if (activity != null) {
+            NextTrackInfo next = activity.consumeNextTrackInfo();
+            if (next != null && next.streamUrl != null && !next.streamUrl.isEmpty()) {
+                dbg("advance -> native nextId=" + next.trackId);
+                activity.applyPendingNextMetadata(next);
+                startPlayback(next.streamUrl);
+                activity.triggerJsEvent("if (typeof Player !== 'undefined') { Player._onNativeAdvanced && Player._onNativeAdvanced(" + jsonQuote(next.trackId) + "); }");
+                return;
+            }
         }
+
+        // When queue is empty and WebView JS may be frozen (screen off doze mode),
+        // native Java background thread fetches the next radio track directly over HTTP!
+        dbg("advance -> no pre-fetched native next, fetching radio in native Java background thread");
+        fetchRadioAndPlayNatively();
     }
+
+    private void fetchRadioAndPlayNatively() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (currentUrl == null) return;
+                    String shortIdStr = shortId(currentUrl);
+                    String u = "http://127.0.0.1:5000/api/radio?id=" + java.net.URLEncoder.encode(shortIdStr, "UTF-8");
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+                    conn.setConnectTimeout(4000);
+                    conn.setReadTimeout(4000);
+                    if (conn.getResponseCode() == 200) {
+                        java.io.InputStream is = conn.getInputStream();
+                        java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, "UTF-8"));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) sb.append(line);
+                        reader.close();
+
+                        org.json.JSONArray arr = new org.json.JSONArray(sb.toString());
+                        if (arr.length() > 0) {
+                            org.json.JSONObject obj = arr.getJSONObject(0);
+                            final String nextId = obj.optString("id");
+                            final String title = obj.optString("title", "");
+                            final String artist = obj.optJSONObject("channel") != null ? obj.optJSONObject("channel").optString("name", "") : obj.optString("artist", "");
+                            final String thumb = obj.optString("thumbnail", "");
+                            final String streamUrl = "http://127.0.0.1:5000/api/stream?id=" + nextId;
+
+                            mainHandler.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    dbg("native radio advance -> id=" + nextId);
+                                    MainActivity activity = MainActivity.getInstance();
+                                    if (activity != null) {
+                                        activity.applyPendingNextMetadata(new NextTrackInfo(nextId, streamUrl, title, artist, thumb));
+                                        activity.triggerJsEvent("if (typeof Player !== 'undefined') { Player._onNativeAdvanced && Player._onNativeAdvanced(" + jsonQuote(nextId) + "); }");
+                                    }
+                                    startPlayback(streamUrl);
+                                }
+                            });
+                            return;
+                        }
+                    }
+                } catch (Exception e) {
+                    dbg("fetchRadioAndPlayNatively EXCEPTION: " + e);
+                }
+
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        MainActivity activity = MainActivity.getInstance();
+                        if (activity != null) activity.triggerJsEvent("playNext()");
+                    }
+                });
+            }
+        }).start();
+    }
+
 
     private void onPlaybackStalled() {
         dbg("STALLED (too many consecutive failures) — stopping");
