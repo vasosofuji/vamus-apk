@@ -229,6 +229,29 @@ function fetchFallbackHomeRecommendations(container) {
 }
 
 // ===== SEARCH PAGE =====
+function handleSearchPageSubmit() {
+    const input = document.getElementById('search-page-input');
+    const q = input ? input.value.trim() : '';
+    if (!q) return;
+    const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs';
+    navigate(`/search?q=${encodeURIComponent(q)}&type=${activeType}`);
+}
+
+function handleSearchPageInput(e) {
+    const val = e.target.value;
+    const clearBtn = document.getElementById('search-page-clear-btn');
+    if (clearBtn) clearBtn.classList.toggle('show', val.length > 0);
+}
+
+function clearSearchPageInput() {
+    const input = document.getElementById('search-page-input');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('search-page-clear-btn');
+    if (clearBtn) clearBtn.classList.remove('show');
+    const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs';
+    navigate(`/search?type=${activeType}`);
+}
+
 function renderSearchPage(container, path) {
     const params = new URLSearchParams(path.includes('?') ? path.split('?')[1] : '');
     const query = params.get('q') || '';
@@ -237,10 +260,12 @@ function renderSearchPage(container, path) {
     
     let html = '<div class="animate-fade-up">';
     
-    // Mobile search input
-    html += `<div style="margin-bottom:1rem;display:none" class="mobile-search-inline">
-        <form onsubmit="event.preventDefault(); const activeType = window.location.hash.includes('type=artists') ? 'artists' : 'songs'; navigate('/search?q='+encodeURIComponent(document.getElementById('mobile-search-input').value)+'&type='+activeType)">
-            <input id="mobile-search-input" type="text" value="${escapeHtml(isCategory ? '' : query)}" placeholder="Search songs, artists..." style="width:100%;padding:0.6rem 1rem;background:rgba(255,255,255,0.07);border:1px solid var(--border-color);border-radius:var(--radius-full);color:var(--text-primary);font-size:0.9rem;outline:none">
+    // Search page bar (prominently rendered on all devices)
+    html += `<div class="search-page-bar">
+        <form onsubmit="event.preventDefault(); handleSearchPageSubmit();">
+            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input id="search-page-input" type="text" value="${escapeHtml(isCategory ? '' : query)}" placeholder="Search songs, artists..." autocomplete="off" oninput="handleSearchPageInput(event)">
+            <button id="search-page-clear-btn" type="button" class="search-page-clear-btn ${query ? 'show' : ''}" onclick="clearSearchPageInput()">✕</button>
         </form>
     </div>`;
     
@@ -250,13 +275,14 @@ function renderSearchPage(container, path) {
     
     // Tabs
     html += '<div class="chip-tabs">';
-    html += `<button class="chip ${type === 'songs' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=songs${isCategory ? '&category=true' : ''}')">Songs</button>`;
-    html += `<button class="chip ${type === 'artists' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(query)}&type=artists${isCategory ? '&category=true' : ''}')">Artists</button>`;
+    html += `<button class="chip ${type === 'songs' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(document.getElementById('search-page-input')?.value || query)}&type=songs${isCategory ? '&category=true' : ''}')">Songs</button>`;
+    html += `<button class="chip ${type === 'artists' ? 'active' : ''}" onclick="navigate('/search?q=${encodeURIComponent(document.getElementById('search-page-input')?.value || query)}&type=artists${isCategory ? '&category=true' : ''}')">Artists</button>`;
     html += '</div>';
     
     html += '<div id="search-results"></div>';
     html += '</div>';
     container.innerHTML = html;
+
     
     // Sync search input
     const searchInput = document.getElementById('search-input');
