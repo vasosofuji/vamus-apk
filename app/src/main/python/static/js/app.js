@@ -129,7 +129,7 @@ function setupSearchSuggestions() {
                 abortController = new AbortController();
                 const signal = abortController.signal;
 
-                fetch(getApiUrl(`/api/suggestions?q=${encodeURIComponent(q)}`), { signal })
+                fetchWithRetry(getApiUrl(`/api/suggestions?q=${encodeURIComponent(q)}`), { signal })
                     .then(r => r.json())
                     .then(suggestions => {
                         // Only show suggestions if input is still active/focused
@@ -246,7 +246,7 @@ function fetchLyrics() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    fetch(getApiUrl(`/api/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}`), { signal: controller.signal })
+    fetchWithRetry(getApiUrl(`/api/lyrics?track=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}`), { signal: controller.signal })
         .then(r => r.json())
         .then(data => {
             clearTimeout(timeoutId);
@@ -1362,7 +1362,7 @@ function setupFloatingSearchSuggestions() {
                 floatingAbortController = new AbortController();
                 const signal = floatingAbortController.signal;
 
-                fetch(getApiUrl(`/api/suggestions?q=${encodeURIComponent(q)}`), { signal })
+                fetchWithRetry(getApiUrl(`/api/suggestions?q=${encodeURIComponent(q)}`), { signal })
                     .then(r => r.json())
                     .then(suggestions => {
                         if (document.activeElement !== input) return;
@@ -1752,7 +1752,7 @@ function performPopupSearch() {
     const type = window._popupSearchType || 'songs';
     resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
     
-    fetch(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
+    fetchWithRetry(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
         .then(r => r.json())
         .then(results => {
             if (!results || !results.length) {

@@ -116,6 +116,12 @@ def add_cors_headers(response):
     return response
 
 
+@app.route('/api/health')
+def api_health():
+    return jsonify({'status': 'ok'})
+
+
+
 # ---------------------------------------------------------------------------
 # SPA / Static routes
 # ---------------------------------------------------------------------------
@@ -1294,5 +1300,19 @@ def api_ai_recommend():
 # Run
 # ---------------------------------------------------------------------------
 
+def start_server(host='127.0.0.1', port=5000):
+    """Starts the Flask server safely for Chaquopy on Android."""
+    try:
+        dlog(f"Starting Python Flask server on {host}:{port}...")
+        from werkzeug.serving import run_simple
+        run_simple(host, int(port), app, threaded=True, use_reloader=False, use_debugger=False)
+    except Exception as e:
+        import traceback
+        err_msg = f"Flask server startup error: {e}\n{traceback.format_exc()}"
+        dlog(err_msg)
+        print(err_msg)
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    start_server(host='0.0.0.0', port=5000)
+

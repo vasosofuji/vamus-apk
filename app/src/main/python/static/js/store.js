@@ -1,13 +1,45 @@
+function isAndroidApp() {
+    return window.Capacitor !== undefined ||
+           window.AndroidMediaSession !== undefined ||
+           window.location.protocol === 'file:' ||
+           window.location.protocol.startsWith('capacitor') ||
+           window.location.hostname === 'localhost' ||
+           window.location.hostname === '127.0.0.1';
+}
+
 function getApiUrl(path) {
-    if (window.location.protocol === 'file:' || 
-        window.location.protocol.startsWith('capacitor') || 
-        (window.location.hostname === 'localhost' && window.location.port === '') ||
-        (window.location.hostname === '127.0.0.1' && window.location.port === '')) {
-        const customBase = localStorage.getItem('apiServerUrl') || 'http://localhost:5000';
-        return customBase.replace(/\/$/, '') + path;
+    if (!path) return '';
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+    if (isAndroidApp()) {
+        const customBase = localStorage.getItem('apiServerUrl') || 'http://127.0.0.1:5000';
+        return customBase.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path);
     }
     return path;
 }
+
+async function fetchWithRetry(url, options = {}, retries = 5, delayMs = 600) {
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || response.status === 404 || response.status === 400) {
+                return response;
+            }
+            if (attempt < retries - 1) {
+                await new Promise(res => setTimeout(res, delayMs));
+            } else {
+                return response;
+            }
+        } catch (err) {
+            if (attempt < retries - 1) {
+                await new Promise(res => setTimeout(res, delayMs));
+            } else {
+                throw err;
+            }
+        }
+    }
+}
+
 
 const THEME_PRESETS = {
     default: {

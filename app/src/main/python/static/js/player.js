@@ -334,7 +334,7 @@ const Player = {
             artist: track.channel?.name || '',
         });
         
-        fetch(getApiUrl(`/api/radio?${params.toString()}`))
+        fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
             .then(r => r.json())
             .then(tracks => {
                 this._fetchingRadio = false;
@@ -677,7 +677,7 @@ const Player = {
                         title: track.title || '',
                         artist: track.channel?.name || '',
                     });
-                    fetch(getApiUrl(`/api/radio?${params.toString()}`))
+                    fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
                         .then(r => r.json())
                         .then(tracks => {
                             this._fetchingRadio = false;

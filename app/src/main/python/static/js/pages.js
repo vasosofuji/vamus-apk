@@ -177,7 +177,7 @@ function renderHomePage(container) {
     const params = new URLSearchParams();
     if (seedIds.length) params.set('seedIds', seedIds.join(','));
     if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
-    fetch(getApiUrl(`/api/home-recommendations?${params.toString()}`))
+    fetchWithRetry(getApiUrl(`/api/home-recommendations?${params.toString()}`))
         .then(r => r.json())
         .then(tracks => {
             const c = document.getElementById('recs-container');
@@ -194,7 +194,7 @@ function renderHomePage(container) {
 
     // Fetch AI recs async — only when the user has configured a Gemini key
     if (hasSeeds && geminiKey && uniqueArtists.length > 0) {
-        fetch(getApiUrl(`/api/ai-recommend?artistNames=${encodeURIComponent(uniqueArtists.join(','))}&apiKey=${encodeURIComponent(geminiKey)}`))
+        fetchWithRetry(getApiUrl(`/api/ai-recommend?artistNames=${encodeURIComponent(uniqueArtists.join(','))}&apiKey=${encodeURIComponent(geminiKey)}`))
             .then(r => r.json())
             .then(tracks => {
                 const recsContainer = document.getElementById('ai-recs-container');
@@ -213,7 +213,7 @@ function renderHomePage(container) {
 
 function fetchFallbackHomeRecommendations(container) {
     if (!container) return;
-    fetch(getApiUrl('/api/search?q=top+hits&type=songs'))
+    fetchWithRetry(getApiUrl('/api/search?q=top+hits&type=songs'))
         .then(r => r.json())
         .then(tracks => {
             if (tracks && tracks.length > 0) {
@@ -311,7 +311,7 @@ function renderSearchPage(container, path) {
         resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
     }
     
-    fetch(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
+    fetchWithRetry(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
         .then(r => r.json())
         .then(results => {
             window._searchCache.set(cacheKey, results);
@@ -451,7 +451,7 @@ function renderPlaylistPage(container, id) {
 function renderArtistPage(container, id) {
     container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading artist...</span></div>';
     
-    fetch(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}`))
+    fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}`))
         .then(r => r.json())
         .then(artist => {
             if (artist.error) {
@@ -526,7 +526,7 @@ function renderArtistPage(container, id) {
 function renderAlbumPage(container, id) {
     container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading album...</span></div>';
     
-    fetch(getApiUrl(`/api/album?id=${encodeURIComponent(id)}`))
+    fetchWithRetry(getApiUrl(`/api/album?id=${encodeURIComponent(id)}`))
         .then(r => r.json())
         .then(album => {
             if (album.error) {

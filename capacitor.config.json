@@ -1,0 +1,9 @@
+{
+	"appId": "com.matej.vamus",
+	"appName": "Vamus",
+	"webDir": "public",
+	"server": {
+		"androidScheme": "http",
+		"cleartext": true
+	}
+}

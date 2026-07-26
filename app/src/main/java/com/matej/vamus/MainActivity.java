@@ -160,6 +160,14 @@ public class MainActivity extends BridgeActivity {
             );
         }
 
+        if (bridge != null && bridge.getWebView() != null) {
+            android.webkit.WebSettings webSettings = bridge.getWebView().getSettings();
+            webSettings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            webSettings.setDomStorageEnabled(true);
+            webSettings.setAllowFileAccess(true);
+            webSettings.setAllowContentAccess(true);
+        }
+
         if (!Python.isStarted()) {
             Python.start(new AndroidPlatform(this));
         }
@@ -169,9 +177,9 @@ public class MainActivity extends BridgeActivity {
             public void run() {
                 try {
                     Python py = Python.getInstance();
-                    py.getModule("app").get("app").callAttr("run", "127.0.0.1", 5000, false);
+                    py.getModule("app").callAttr("start_server", "127.0.0.1", 5000);
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    android.util.Log.e("VamusPython", "Failed to start Python server", e);
                 }
             }
         }).start();
