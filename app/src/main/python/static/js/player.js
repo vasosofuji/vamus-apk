@@ -67,20 +67,27 @@ const Player = {
     _resolveNextTrack() {
         if (!Store.currentTrack) return null;
         
-        // Filter out current playing track from explicit user queue
-        const userQueueNext = (Store.queue || []).filter(t => t.id !== Store.currentTrack.id);
-        
-        if (Store.shuffle && userQueueNext.length > 0) {
-            return { track: userQueueNext[Math.floor(Math.random() * userQueueNext.length)] };
+        if (Store.repeat === 'one') {
+            return { track: Store.currentTrack };
         }
+
+        let userQueueNext = (Store.queue || []).filter(t => t.id !== Store.currentTrack.id);
         
+        if (userQueueNext.length === 0 && Store.repeat === 'all' && Store.originalQueue && Store.originalQueue.length > 0) {
+            Store.queue = Store.originalQueue.filter(t => t.id !== Store.currentTrack.id);
+            userQueueNext = Store.queue;
+            Store.emit('queueChanged');
+        }
+
         if (userQueueNext.length > 0) {
+            if (Store.shuffle) {
+                const randomIndex = Math.floor(Math.random() * userQueueNext.length);
+                return { track: userQueueNext[randomIndex] };
+            }
             return { track: userQueueNext[0] };
-        } else if (Store.repeat === 'all' && Store.queue.length > 0) {
-            return { track: Store.queue[0] };
         }
         
-        return null; // explicit queue is empty — trigger auto-radio
+        return null;
     },
     
     playTrack(track, newQueue = null) {
@@ -100,7 +107,10 @@ const Player = {
         if (newQueue && newQueue.length > 1) {
             // Explicit context change (e.g. "Play All" on album or playlist)
             Store.queue = newQueue.filter(t => t.id !== track.id);
+            Store.originalQueue = [...newQueue];
             Store.history = [];
+        } else if (!Store.originalQueue || Store.originalQueue.length === 0) {
+            Store.originalQueue = [track, ...(Store.queue || [])];
         }
 
         Store.addToRecent(track);
@@ -415,8 +425,7 @@ const Player = {
         // If we're in a crossfade, the old track ended naturally — just clean up
         if (this._isCrossfading) return;
         
-        if (Store.repeat === 'one') {
-            Store.repeat = 'none';
+        if (Store.repeat === 'one' && Store.currentTrack) {
             this.updateRepeatUI();
             this._pushNextTrackToNative();
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
@@ -511,6 +520,7 @@ const Player = {
     
     toggleShuffle() {
         Store.shuffle = !Store.shuffle;
+        Store.save();
         const btn = document.getElementById('shuffle-btn');
         if (btn) btn.classList.toggle('active', Store.shuffle);
         const mobBtn = document.getElementById('mobile-shuffle-btn');
@@ -538,6 +548,7 @@ const Player = {
         const modes = ['none', 'all', 'one'];
         const idx = modes.indexOf(Store.repeat);
         Store.repeat = modes[(idx + 1) % 3];
+        Store.save();
         this.updateRepeatUI();
         this._pushNextTrackToNative();
     },
@@ -642,16 +653,12 @@ const Player = {
 
     _onNativeAdvanced(nextTrackId) {
         if (!nextTrackId) return;
-        const track = Store.queue.find(t => t.id === nextTrackId);
+        const track = (Store.queue || []).find(t => t.id === nextTrackId) || Store.nextAutoTrack;
         if (!track) return;
-        if (Store.repeat === 'one' && Store.currentTrack && Store.currentTrack.id === track.id) {
-            Store.repeat = 'none';
-            this.updateRepeatUI();
-            this._pushNextTrackToNative();
-        }
         if (Store.currentTrack && Store.currentTrack.id !== track.id) {
             Store.history = [...Store.history, Store.currentTrack];
         }
+        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
         Store.currentTrack = track;
         Store.isPlaying = true;
         Store.addToRecent(track);

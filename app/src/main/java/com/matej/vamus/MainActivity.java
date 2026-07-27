@@ -64,46 +64,35 @@ public class MainActivity extends BridgeActivity {
     }
 
     private synchronized MediaPlaybackService.NextTrackInfo computeNextFromNativeQueue() {
-        if (nativeQueue.isEmpty() || nativeCurrentTrackId == null) return null;
+        if (nativeCurrentTrackId == null) return null;
 
         if ("one".equals(nativeRepeat)) {
-            nativeRepeat = "none";
             for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
                 if (nativeCurrentTrackId.equals(t.trackId)) return t;
             }
             return null;
         }
 
+        if (nativeQueue.isEmpty()) return null;
+
         if (nativeShuffle) {
             java.util.List<MediaPlaybackService.NextTrackInfo> others = new java.util.ArrayList<>();
             for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
-                if (!nativeCurrentTrackId.equals(t.trackId)) others.add(t);
+                if (!t.trackId.equals(nativeCurrentTrackId)) others.add(t);
             }
+            if (others.isEmpty()) others.addAll(nativeQueue);
             if (others.isEmpty()) return null;
+
             MediaPlaybackService.NextTrackInfo pick = others.get(
                     new java.util.Random().nextInt(others.size()));
             nativeCurrentTrackId = pick.trackId;
+            nativeQueue.remove(pick);
             return pick;
         }
 
-        int idx = -1;
-        for (int i = 0; i < nativeQueue.size(); i++) {
-            if (nativeCurrentTrackId.equals(nativeQueue.get(i).trackId)) {
-                idx = i; break;
-            }
-        }
-        if (idx < 0) return null;
-        if (idx < nativeQueue.size() - 1) {
-            MediaPlaybackService.NextTrackInfo pick = nativeQueue.get(idx + 1);
-            nativeCurrentTrackId = pick.trackId;
-            return pick;
-        }
-        if ("all".equals(nativeRepeat)) {
-            MediaPlaybackService.NextTrackInfo pick = nativeQueue.get(0);
-            nativeCurrentTrackId = pick.trackId;
-            return pick;
-        }
-        return null;
+        MediaPlaybackService.NextTrackInfo pick = nativeQueue.remove(0);
+        nativeCurrentTrackId = pick.trackId;
+        return pick;
     }
 
     public synchronized void setNativeQueue(String queueJson, String currentTrackId,

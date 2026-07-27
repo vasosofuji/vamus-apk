@@ -114,6 +114,7 @@ const THEME_PRESETS = {
 const Store = {
     currentTrack: null,
     queue: [],
+    originalQueue: [],
     history: [],
     isPlaying: false,
     likedSongs: [],
@@ -167,6 +168,10 @@ const Store = {
             if (cfd !== null) this.crossfadeDuration = parseInt(cfd, 10) || 5;
             const ap = localStorage.getItem('autoplayEnabled');
             if (ap !== null) this.autoplayEnabled = ap === 'true';
+            const sh = localStorage.getItem('shuffle');
+            if (sh !== null) this.shuffle = sh === 'true';
+            const rep = localStorage.getItem('repeat');
+            if (rep !== null) this.repeat = rep;
 
             // Theme customization
             const savedTheme = localStorage.getItem('vamus_theme_config');
@@ -186,6 +191,8 @@ const Store = {
         try { localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled)); } catch(e) {}
         try { localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration)); } catch(e) {}
         try { localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled)); } catch(e) {}
+        try { localStorage.setItem('shuffle', String(this.shuffle)); } catch(e) {}
+        try { localStorage.setItem('repeat', String(this.repeat)); } catch(e) {}
         try { localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme)); } catch(e) { console.error('Error saving vamus_theme_config', e); }
     },
     
