@@ -117,3 +117,6 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+
+# Local instruction files
+UPDATEINSTRUCTIONS.txt
