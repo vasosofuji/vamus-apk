@@ -524,17 +524,21 @@ function updateMobilePlayerUI() {
         slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
     }
 
-function _getPrevTrack() {
+function _getPrevTrack(forCarousel = false) {
     if (!Store.currentTrack) return null;
-    let curTime = 0;
-    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
-        curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
-    } else if (Player.audio) {
-        curTime = Player.audio.currentTime;
+    if (!forCarousel) {
+        let curTime = 0;
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
+            curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
+        } else if (Player.audio) {
+            curTime = Player.audio.currentTime;
+        }
+        if (curTime > 3) return Store.currentTrack;
     }
-    if (curTime > 3) return Store.currentTrack;
-    if (Store.history.length > 0) return Store.history[Store.history.length - 1];
-    const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
+    if (Store.history && Store.history.length > 0) {
+        return Store.history[Store.history.length - 1];
+    }
+    const idx = (Store.queue || []).findIndex(t => t.id === Store.currentTrack.id);
     if (idx > 0) return Store.queue[idx - 1];
     return null;
 }
@@ -542,7 +546,10 @@ function _getPrevTrack() {
 function _getNextTrack() {
     if (typeof Player !== 'undefined' && Player._resolveNextTrack) {
         const res = Player._resolveNextTrack();
-        return res ? res.track : null;
+        if (res && res.track) return res.track;
+    }
+    if (Store.nextAutoTrack) {
+        return Store.nextAutoTrack;
     }
     return null;
 }
@@ -698,10 +705,17 @@ function setupMobilePlayerSwipe() {
     }
 }
 
+function closeMobilePlayer() {
+    const overlay = document.getElementById('mobile-player-overlay');
+    if (overlay) overlay.style.display = 'none';
+    document.body.classList.remove('mobile-player-open');
+}
+
 function showMobilePlayer() {
     const overlay = document.getElementById('mobile-player-overlay');
     if (!overlay || !Store.currentTrack) return;
     
+    document.body.classList.add('mobile-player-open');
     const track = Store.currentTrack;
     const isPlaying = Store.isPlaying;
     const liked = Store.isLiked(track.id);
@@ -709,7 +723,7 @@ function showMobilePlayer() {
     const current = Player.audio ? (Player.audio.currentTime || 0) : 0;
     const pct = duration > 0 ? (current / duration) * 100 : 0;
     
-    const prevTrack = _getPrevTrack();
+    const prevTrack = _getPrevTrack(true);
     const nextTrack = _getNextTrack();
     const artUrl = track.thumbnail || FALLBACK_IMG;
     const prevArtUrl = prevTrack ? (prevTrack.thumbnail || FALLBACK_IMG) : '';
@@ -723,7 +737,7 @@ function showMobilePlayer() {
         </div>
 
         <div class="mobile-player-header">
-            <button class="btn-icon" onclick="document.getElementById('mobile-player-overlay').style.display='none'">
+            <button class="btn-icon" onclick="closeMobilePlayer()">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             <span class="mobile-player-title">Now Playing</span>
@@ -788,7 +802,10 @@ function showMobilePlayer() {
             </div>
             
             <div class="mobile-player-footer">
-                <button class="btn-icon" onclick="toggleLyrics()">
+                <button class="btn-icon ${Store.queue && Store.queue.length > 0 ? 'active' : ''}" id="mobile-queue-btn" onclick="toggleQueue()" title="Queue">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M21 6h-3M21 15h-3"/><circle cx="14" cy="15" r="2"/><circle cx="14" cy="6" r="2"/><path d="M3 6h6M3 12h12M3 18h12"/></svg>
+                </button>
+                <button class="btn-icon" onclick="toggleLyrics()" title="Lyrics">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
                 </button>
             </div>
@@ -809,8 +826,7 @@ function navigateToCurrentArtist(event) {
     const track = Store.currentTrack;
     if (!track) return;
 
-    const overlay = document.getElementById('mobile-player-overlay');
-    if (overlay) overlay.style.display = 'none';
+    closeMobilePlayer();
 
     const artistId = track.channel?.id || track.artistId || track.channel?.name || track.artist;
     if (artistId) {
@@ -917,7 +933,7 @@ function handleBackButton() {
     // Priority 3: close fullscreen mobile player
     const mobilePlayer = document.getElementById('mobile-player-overlay');
     if (mobilePlayer && mobilePlayer.style.display !== 'none' && mobilePlayer.style.display !== '') {
-        mobilePlayer.style.display = 'none';
+        closeMobilePlayer();
         return;
     }
     // Priority 4: navigate back in hash history, or exit app if at root

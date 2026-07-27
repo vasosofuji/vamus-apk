@@ -1,3 +1,12 @@
+// Image Pre-loading Cache
+const _artCache = new Map();
+function preloadImage(url) {
+    if (!url || _artCache.has(url)) return;
+    const img = new Image();
+    img.src = url;
+    _artCache.set(url, img);
+}
+
 // Repeat Icons
 const REPEAT_ICONS = {
     none: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>`,
@@ -318,6 +327,13 @@ const Player = {
             return;
         }
         
+        if (Store.nextAutoTrack) {
+            const t = Store.nextAutoTrack;
+            Store.nextAutoTrack = null;
+            this.playTrack(t);
+            return;
+        }
+
         // Queue is empty — manual skip next fetches and plays a similar song immediately
         if (Store.currentTrack && !this._fetchingRadio) {
             this._fetchRadioAndPlay();
@@ -527,12 +543,12 @@ const Player = {
     },
 
     _pushNextTrackToNative() {
-        if (!window.AndroidMediaSession) return;
-
-        if (typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-            const next = this._resolveNextTrack();
-            if (next && next.track) {
-                const t = next.track;
+        const next = this._resolveNextTrack();
+        if (next && next.track) {
+            Store.nextAutoTrack = null;
+            const t = next.track;
+            if (t.thumbnail) preloadImage(t.thumbnail);
+            if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
                 const url = getApiUrl(`/api/stream?id=${t.id}`);
                 window.AndroidMediaSession.setNextTrackInfo(
                     t.id || '',
@@ -541,19 +557,27 @@ const Player = {
                     (t.channel && t.channel.name) || t.artist || 'Unknown',
                     t.thumbnail || ''
                 );
-            } else if (Store.autoplayEnabled && Store.currentTrack) {
-                // Pre-fetch next radio track into native Java so screen-off background playback works uninterrupted!
-                const track = Store.currentTrack;
-                const params = new URLSearchParams({
-                    id: track.id,
-                    title: track.title || '',
-                    artist: track.channel?.name || '',
-                });
-                fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
-                    .then(r => r.json())
-                    .then(tracks => {
-                        if (!tracks || !tracks.length || !window.AndroidMediaSession) return;
-                        const firstNew = tracks[0];
+            }
+        } else if (Store.autoplayEnabled && Store.currentTrack) {
+            // Pre-fetch next radio track into native Java & JS auto track cache
+            const track = Store.currentTrack;
+            const params = new URLSearchParams({
+                id: track.id,
+                title: track.title || '',
+                artist: track.channel?.name || '',
+            });
+            fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
+                .then(r => r.json())
+                .then(tracks => {
+                    if (!tracks || !tracks.length) return;
+                    const firstNew = tracks[0];
+                    Store.nextAutoTrack = firstNew;
+                    if (firstNew.thumbnail) preloadImage(firstNew.thumbnail);
+
+                    // Pre-fetch stream URL for auto-radio track
+                    fetch(getApiUrl('/api/prefetch?ids=' + firstNew.id)).catch(() => {});
+
+                    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
                         const url = getApiUrl(`/api/stream?id=${firstNew.id}`);
                         window.AndroidMediaSession.setNextTrackInfo(
                             firstNew.id || '',
@@ -562,16 +586,33 @@ const Player = {
                             (firstNew.channel && firstNew.channel.name) || firstNew.artist || 'Unknown',
                             firstNew.thumbnail || ''
                         );
-                    })
-                    .catch(() => {});
-            } else {
+                    }
+
+                    // Update mobile player overlay carousel next slide if open
+                    const overlay = document.getElementById('mobile-player-overlay');
+                    if (overlay && overlay.style.display === 'flex') {
+                        const nextSlide = document.getElementById('art-slide-next');
+                        if (nextSlide && firstNew.thumbnail) {
+                            nextSlide.innerHTML = `<img src="${firstNew.thumbnail}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
+                        }
+                    }
+                })
+                .catch(() => {});
+        } else {
+            Store.nextAutoTrack = null;
+            if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
                 window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
             }
         }
 
+        // Also pre-cache previous track image from history
+        if (Store.history && Store.history.length > 0) {
+            const prev = Store.history[Store.history.length - 1];
+            if (prev && prev.thumbnail) preloadImage(prev.thumbnail);
+        }
+
         // Also push the full queue so native can keep advancing indefinitely
-        // when the WebView JS is throttled (screen off).
-        if (typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
             const mapped = (Store.queue || []).map(t => ({
                 id: t.id || '',
                 title: t.title || '',
@@ -586,6 +627,17 @@ const Player = {
                 !!Store.shuffle
             );
         }
+
+        // Trigger background pre-fetching for upcoming queue tracks
+        try {
+            const upcomingIds = (Store.queue || [])
+                .filter(t => t.id && (!Store.currentTrack || t.id !== Store.currentTrack.id))
+                .slice(0, 3)
+                .map(t => t.id);
+            if (upcomingIds.length > 0) {
+                fetch(getApiUrl('/api/prefetch?ids=' + upcomingIds.join(','))).catch(() => {});
+            }
+        } catch (e) {}
     },
 
     _onNativeAdvanced(nextTrackId) {

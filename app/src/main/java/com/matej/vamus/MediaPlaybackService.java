@@ -17,9 +17,14 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.cache.CacheDataSource;
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
+import androidx.media3.datasource.cache.SimpleCache;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
 /**
@@ -45,6 +50,20 @@ public class MediaPlaybackService extends Service {
     private static final long RETRY_DELAY_MS = 700;
 
     private static MediaPlaybackService instance;
+    private static SimpleCache downloadCache;
+
+    private synchronized SimpleCache getCache() {
+        if (downloadCache == null) {
+            try {
+                java.io.File cacheDir = new java.io.File(getCacheDir(), "media_cache");
+                LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(250 * 1024 * 1024L); // 250 MB LRU disk cache
+                downloadCache = new SimpleCache(cacheDir, evictor, new StandaloneDatabaseProvider(this));
+            } catch (Exception e) {
+                dbg("Failed to initialize SimpleCache: " + e);
+            }
+        }
+        return downloadCache;
+    }
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private boolean isForeground = false;
@@ -199,15 +218,13 @@ public class MediaPlaybackService extends Service {
 
     // ----------------------------------------------------------- ExoPlayer
     private ExoPlayer buildPlayer() {
-        // Start playback after only ~1s buffered (vs MediaPlayer's ~10s), which
-        // is what makes startup fast on throttled streams. Keep a larger ongoing
-        // buffer so playback stays smooth.
+        // Fast playback startup (1000ms buffer) and fast re-buffering on seek (300ms buffer instead of 2000ms).
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                         /* minBufferMs= */ 15000,
-                        /* maxBufferMs= */ 50000,
+                        /* maxBufferMs= */ 60000,
                         /* bufferForPlaybackMs= */ 1000,
-                        /* bufferForPlaybackAfterRebufferMs= */ 2000)
+                        /* bufferForPlaybackAfterRebufferMs= */ 300)
                 .build();
 
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
@@ -216,10 +233,22 @@ public class MediaPlaybackService extends Service {
                 .setReadTimeoutMs(15000)
                 .setUserAgent("Mozilla/5.0");
 
+        SimpleCache cache = getCache();
+        androidx.media3.datasource.DataSource.Factory dataSourceFactory;
+        if (cache != null) {
+            dataSourceFactory = new CacheDataSource.Factory()
+                    .setCache(cache)
+                    .setUpstreamDataSourceFactory(http)
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        } else {
+            dataSourceFactory = http;
+        }
+
         ExoPlayer p = new ExoPlayer.Builder(this)
                 .setLoadControl(loadControl)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(http))
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
                 .build();
+        p.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         p.setVolume(currentVolume);
         return p;
     }

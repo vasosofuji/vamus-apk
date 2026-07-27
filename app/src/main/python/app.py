@@ -261,31 +261,47 @@ class YtDlpLogger(object):
         pass
 
 
-@app.route('/api/stream')
-def api_stream():
-    video_id = request.args.get('id', '').strip()
-    if not video_id:
-        return jsonify({'error': 'Query parameter id is required'}), 400
+# ---------------------------------------------------------------------------
+# Stream URL Cache & Pre-resolution Engine
+# ---------------------------------------------------------------------------
+STREAM_URL_CACHE = {}
+_stream_cache_lock = _threading.Lock()
 
+
+def get_cached_stream_url(video_id):
+    with _stream_cache_lock:
+        entry = STREAM_URL_CACHE.get(video_id)
+        if entry:
+            if _time.time() < entry['expires']:
+                return entry['url'], entry['source'], entry['fmt']
+            else:
+                del STREAM_URL_CACHE[video_id]
+    return None, None, None
+
+
+def set_cached_stream_url(video_id, stream_url, source, fmt, ttl=12600):
+    with _stream_cache_lock:
+        if len(STREAM_URL_CACHE) > 500:
+            oldest_key = min(STREAM_URL_CACHE.keys(), key=lambda k: STREAM_URL_CACHE[k]['expires'])
+            del STREAM_URL_CACHE[oldest_key]
+        STREAM_URL_CACHE[video_id] = {
+            'url': stream_url,
+            'source': source,
+            'fmt': fmt,
+            'expires': _time.time() + ttl
+        }
+
+
+def resolve_stream_url(video_id):
+    cached_url, source, chosen_fmt = get_cached_stream_url(video_id)
+    if cached_url:
+        return cached_url, source, chosen_fmt, True
+
+    dlog('STREAM resolve req id=%s' % video_id)
     stream_url = None
     source = None
     chosen_fmt = None
-    dlog('STREAM req id=%s' % video_id)
 
-    # Try yt-dlp first. Two things matter a great deal here:
-    #
-    #  1. Player client. The default "web" client gets bot-blocked on
-    #     residential/mobile IPs (i.e. on the phone) and also hands back URLs
-    #     that need signature deciphering. The "android_music" client evades the
-    #     block and returns URLs bound to THIS device's IP, so they play from the
-    #     phone. We fall through android_music -> android -> web.
-    #
-    #  2. Codec/container. "bestaudio" picks itag 251 (Opus in WebM), which
-    #     Android's MediaPlayer streams unreliably — it will start a track then
-    #     drop it mid-play. Itag 140 (m4a / AAC) streams rock-solid, so we force
-    #     it. Each client is paired with a format string that prefers AAC.
-    #
-    # Also pass the full watch URL (not a bare id) so extraction is reliable.
     ytdlp_configs = [
         (['android_music'], '140/bestaudio[ext=m4a]/bestaudio'),
         (['android'], 'bestaudio[ext=m4a]/140/18/bestaudio'),
@@ -301,6 +317,8 @@ def api_stream():
                     'logger': YtDlpLogger(),
                     'quiet': True,
                     'no_warnings': True,
+                    'no_playlist': True,
+                    'skip_download': True,
                     'extractor_args': {
                         'youtube': {'player_client': clients}
                     },
@@ -329,12 +347,11 @@ def api_stream():
     except Exception as e:
         dlog('  yt-dlp unavailable: %s' % str(e)[:120])
 
-    # Try Piped instances as fallback
     if not stream_url:
         for instance in PIPED_INSTANCES:
             try:
                 resp = http_requests.get(
-                    f'{instance}/streams/{video_id}', timeout=8
+                    f'{instance}/streams/{video_id}', timeout=6
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -344,8 +361,6 @@ def api_stream():
                     if s.get('mimeType', '').startswith('audio/')
                 ]
                 if audio_streams:
-                    # Prefer AAC/m4a over Opus/WebM (MediaPlayer streams AAC
-                    # reliably), then by bitrate.
                     def _piped_key(s):
                         is_mp4 = 'mp4' in s.get('mimeType', '')
                         return (1 if is_mp4 else 0, s.get('bitrate', 0))
@@ -354,18 +369,15 @@ def api_stream():
                     if stream_url:
                         source = 'piped:%s' % instance.split('//')[-1]
                         chosen_fmt = audio_streams[0].get('mimeType')
-                        dlog('  piped OK %s %s' % (instance, chosen_fmt))
                         break
-            except Exception as e:
-                dlog('  piped FAIL %s: %s' % (instance, str(e)[:80]))
+            except Exception:
                 continue
 
-    # Try Invidious instances as second fallback
     if not stream_url:
         for instance in INVIDIOUS_INSTANCES:
             try:
                 resp = http_requests.get(
-                    f'{instance}/api/v1/videos/{video_id}', timeout=8
+                    f'{instance}/api/v1/videos/{video_id}', timeout=6
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -375,7 +387,6 @@ def api_stream():
                     if f.get('type', '').startswith('audio/')
                 ]
                 if audio_formats:
-                    # Prefer AAC/m4a over Opus/WebM, then by bitrate.
                     def _inv_key(f):
                         is_mp4 = 'mp4' in f.get('type', '')
                         return (1 if is_mp4 else 0, int(f.get('bitrate', 0) or 0))
@@ -384,25 +395,56 @@ def api_stream():
                     if stream_url:
                         source = 'invidious:%s' % instance.split('//')[-1]
                         chosen_fmt = audio_formats[0].get('type')
-                        dlog('  invidious OK %s %s' % (instance, chosen_fmt))
                         break
-            except Exception as e:
-                dlog('  invidious FAIL %s: %s' % (instance, str(e)[:80]))
+            except Exception:
                 continue
+
+    if stream_url:
+        set_cached_stream_url(video_id, stream_url, source, chosen_fmt)
+        return stream_url, source, chosen_fmt, False
+
+    return None, None, None, False
+
+
+@app.route('/api/stream')
+def api_stream():
+    video_id = request.args.get('id', '').strip()
+    if not video_id:
+        return jsonify({'error': 'Query parameter id is required'}), 400
+
+    stream_url, source, chosen_fmt, is_hit = resolve_stream_url(video_id)
 
     if stream_url:
         try:
             host = urllib.parse.urlparse(stream_url).netloc
         except Exception:
             host = '?'
-        dlog('STREAM ok id=%s via %s fmt=%s host=%s' % (
-            video_id, source, chosen_fmt, host))
+        dlog('STREAM ok id=%s via %s fmt=%s host=%s cached=%s' % (
+            video_id, source, chosen_fmt, host, is_hit))
         response = redirect(stream_url, code=302)
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return response
 
     dlog('STREAM FAIL id=%s (no source)' % video_id)
     return jsonify({'error': 'Could not find audio stream'}), 502
+
+
+@app.route('/api/prefetch')
+def api_prefetch():
+    video_ids = request.args.get('ids', '').split(',')
+    clean_ids = [vid.strip() for vid in video_ids if vid.strip()][:5]
+    if not clean_ids:
+        return jsonify({'ok': False, 'message': 'No valid ids'}), 400
+
+    def _bg_prefetch():
+        for vid in clean_ids:
+            try:
+                resolve_stream_url(vid)
+            except Exception as e:
+                dlog('prefetch error id=%s: %s' % (vid, e))
+
+    _threading.Thread(target=_bg_prefetch, daemon=True).start()
+    return jsonify({'ok': True, 'prefetching': clean_ids})
 
 
 @app.route('/api/debug/log')
