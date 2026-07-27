@@ -125,6 +125,7 @@ const Store = {
     crossfadeEnabled: false,
     crossfadeDuration: 5, // seconds (1-12)
     autoplayEnabled: true, // auto-radio when queue ends
+    developerOptionsEnabled: false, // on-screen debug logging panel toggle
 
     // App-wide Customization Theme
     theme: {
@@ -172,6 +173,8 @@ const Store = {
             if (sh !== null) this.shuffle = sh === 'true';
             const rep = localStorage.getItem('repeat');
             if (rep !== null) this.repeat = rep;
+            const dev = localStorage.getItem('developerOptionsEnabled');
+            if (dev !== null) this.developerOptionsEnabled = dev === 'true';
 
             // Theme customization
             const savedTheme = localStorage.getItem('vamus_theme_config');
@@ -193,6 +196,7 @@ const Store = {
         try { localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled)); } catch(e) {}
         try { localStorage.setItem('shuffle', String(this.shuffle)); } catch(e) {}
         try { localStorage.setItem('repeat', String(this.repeat)); } catch(e) {}
+        try { localStorage.setItem('developerOptionsEnabled', String(this.developerOptionsEnabled)); } catch(e) {}
         try { localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme)); } catch(e) { console.error('Error saving vamus_theme_config', e); }
     },
     

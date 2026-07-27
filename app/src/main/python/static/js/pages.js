@@ -633,6 +633,14 @@ function renderSettingsPage(container) {
             </div>
         </div>
 
+        <div class="settings-menu-card" onclick="openDeveloperOptionsModal()">
+            <div class="settings-menu-icon">🛠️</div>
+            <div class="settings-menu-info">
+                <div class="settings-menu-title">Developer Options</div>
+                <div class="settings-menu-desc">Enable on-screen diagnostic logging panel & debug tools.</div>
+            </div>
+        </div>
+
         <div class="settings-menu-card" onclick="openAboutModal()">
             <div class="settings-menu-icon">ℹ️</div>
             <div class="settings-menu-info">

@@ -2653,6 +2653,40 @@ function openServerUrlModal() {
     </div>`;
 }
 
+function openDeveloperOptionsModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
+        <h3>🛠️ Developer Options</h3>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Advanced diagnostic tools and error logging overlay for debugging.</p>
+        
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;margin-bottom:1rem">
+            <div>
+                <div style="font-weight:600;color:var(--text-primary)">Floating Debug Button</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Show the red 🐞 debug logging button</div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="dev-debug-toggle" ${Store.developerOptionsEnabled ? 'checked' : ''} onchange="toggleDeveloperDebugButton(this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div class="modal-actions" style="margin-top:1.5rem">
+            <button class="modal-btn create" onclick="closeModal()">Done</button>
+        </div>
+    </div>`;
+}
+
+function toggleDeveloperDebugButton(enabled) {
+    Store.developerOptionsEnabled = enabled;
+    Store.save();
+    if (window.VamusDebug && typeof window.VamusDebug.updateVisibility === 'function') {
+        window.VamusDebug.updateVisibility();
+    }
+}
+
 function openAboutModal() {
     const overlay = document.getElementById('modal-overlay');
     if (!overlay) return;

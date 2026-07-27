@@ -67,8 +67,19 @@ window.VamusDebug = {
 
     close() {
         this._open = false;
-        document.getElementById('vdbg-panel').style.display = 'none';
+        const panel = document.getElementById('vdbg-panel');
+        if (panel) panel.style.display = 'none';
         if (this._autoTimer) { clearInterval(this._autoTimer); this._autoTimer = null; }
+    },
+
+    updateVisibility() {
+        const btn = document.getElementById('vdbg-btn');
+        if (!btn) return;
+        const enabled = typeof Store !== 'undefined' && !!Store.developerOptionsEnabled;
+        btn.style.display = enabled ? 'block' : 'none';
+        if (!enabled) {
+            this.close();
+        }
     },
 
     _mount() {
@@ -76,10 +87,11 @@ window.VamusDebug = {
         btn.id = 'vdbg-btn';
         btn.textContent = '🐞';
         btn.title = 'Debug logs';
+        const enabled = typeof Store !== 'undefined' && !!Store.developerOptionsEnabled;
         btn.style.cssText =
             'position:fixed;right:12px;bottom:120px;z-index:2147483647;width:44px;height:44px;' +
             'border-radius:50%;border:none;background:#e11;color:#fff;font-size:20px;' +
-            'box-shadow:0 2px 8px rgba(0,0,0,.4);opacity:.85';
+            `box-shadow:0 2px 8px rgba(0,0,0,.4);opacity:.85;display:${enabled ? 'block' : 'none'};`;
         btn.onclick = () => this.toggle();
 
         const panel = document.createElement('div');
