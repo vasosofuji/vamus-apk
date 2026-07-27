@@ -2709,16 +2709,78 @@ function openDangerZoneModal() {
     if (!overlay) return;
 
     overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:420px;border-color:rgba(239,68,68,0.4)">
-        <h3 style="color:var(--danger-color)">⚠️ Danger Zone</h3>
-        <p style="font-size:0.88rem;color:var(--text-primary);margin-top:0.75rem">Clear all saved local data including liked songs, playlists, custom themes, wallpapers, and playback history?</p>
-        <p style="font-size:0.82rem;color:var(--danger-color);margin-top:0.25rem">This action cannot be undone.</p>
+    overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px;border-color:rgba(239,68,68,0.4)">
+        <h3 style="color:var(--danger-color)">⚠️ Data Management & Danger Zone</h3>
+        
+        <div style="margin-top:1rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.1)">
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">📦 Data Backup & Restore</div>
+            <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px">Export your playlists, liked songs, and custom theme settings to a JSON backup file or restore them anytime.</div>
+            <div style="display:flex;gap:8px">
+                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="exportUserData()">📥 Export Backup</button>
+                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="document.getElementById('import-backup-input').click()">📤 Import Backup</button>
+                <input type="file" id="import-backup-input" accept=".json" style="display:none" onchange="importUserData(event)">
+            </div>
+        </div>
+
+        <div style="margin-top:1rem">
+            <div style="font-weight:600;color:var(--danger-color);margin-bottom:4px">🔥 Reset App Data</div>
+            <p style="font-size:0.82rem;color:var(--text-secondary)">Clear all saved local data including liked songs, playlists, custom themes, wallpapers, and playback history.</p>
+        </div>
 
         <div class="modal-actions" style="margin-top:1.5rem">
             <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
-            <button class="modal-btn danger" style="background:var(--danger-color);color:white" onclick="localStorage.clear();location.reload()">Clear All Data</button>
+            <button class="modal-btn danger" style="background:var(--danger-color);color:white" onclick="if(confirm('Are you sure you want to clear all app data?')){localStorage.clear();location.reload();}">Clear All Data</button>
         </div>
     </div>`;
+}
+
+function exportUserData() {
+    const data = {
+        likedSongs: Store.likedSongs || [],
+        playlists: Store.playlists || [],
+        recentlyPlayed: Store.recentlyPlayed || [],
+        theme: Store.theme || {},
+        crossfadeEnabled: Store.crossfadeEnabled,
+        crossfadeDuration: Store.crossfadeDuration,
+        autoplayEnabled: Store.autoplayEnabled,
+        developerOptionsEnabled: Store.developerOptionsEnabled,
+        exportTimestamp: new Date().toISOString()
+    };
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vamus_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function importUserData(event) {
+    const file = event.target && event.target.files ? event.target.files[0] : null;
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (data.likedSongs) Store.likedSongs = data.likedSongs;
+            if (data.playlists) Store.playlists = data.playlists;
+            if (data.recentlyPlayed) Store.recentlyPlayed = data.recentlyPlayed;
+            if (data.theme) Store.theme = { ...Store.theme, ...data.theme };
+            if (typeof data.crossfadeEnabled === 'boolean') Store.crossfadeEnabled = data.crossfadeEnabled;
+            if (typeof data.crossfadeDuration === 'number') Store.crossfadeDuration = data.crossfadeDuration;
+            if (typeof data.autoplayEnabled === 'boolean') Store.autoplayEnabled = data.autoplayEnabled;
+            if (typeof data.developerOptionsEnabled === 'boolean') Store.developerOptionsEnabled = data.developerOptionsEnabled;
+            Store.save();
+            alert('Backup data successfully imported!');
+            location.reload();
+        } catch (err) {
+            alert('Failed to import backup file: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
 }
 function openPlaylistCustomizerModal(playlistId) {
     const pl = Store.playlists.find(p => p.id === playlistId);
