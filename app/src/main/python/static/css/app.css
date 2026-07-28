@@ -1134,6 +1134,7 @@ body[class*="glass-"] .track-row:hover {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+body.page-settings .bottom-nav,
 body.mobile-player-open .bottom-nav,
 body.mobile-player-open .player-bar {
   display: none !important;
@@ -1398,6 +1399,10 @@ body.mobile-player-open .player-bar {
   }
   .app-container.has-player .main-content {
     padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); /* space for bottom-nav + player-bar + gaps */
+  }
+  body.page-settings .main-content,
+  body.page-settings .app-container.has-player .main-content {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   .top-bar { padding: 0.75rem 0; }

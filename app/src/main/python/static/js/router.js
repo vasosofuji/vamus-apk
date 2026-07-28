@@ -34,6 +34,23 @@ const Router = {
                 floatingSearch.style.display = 'flex';
             }
         }
+
+        const isSettings = path === '/settings' || path.startsWith('/settings');
+        if (isSettings) {
+            document.body.classList.add('page-settings');
+        } else {
+            document.body.classList.remove('page-settings');
+        }
+
+        const bottomNav = document.getElementById('bottom-nav');
+        if (bottomNav) {
+            const isMobilePlayerOpen = document.body.classList.contains('mobile-player-open');
+            if (isSettings || isMobilePlayerOpen) {
+                bottomNav.style.display = 'none';
+            } else {
+                bottomNav.style.display = '';
+            }
+        }
         
         if (path === '/' || path === '') {
             renderHomePage(content);

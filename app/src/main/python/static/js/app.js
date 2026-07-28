@@ -709,6 +709,19 @@ function closeMobilePlayer() {
     const overlay = document.getElementById('mobile-player-overlay');
     if (overlay) overlay.style.display = 'none';
     document.body.classList.remove('mobile-player-open');
+    const bottomNav = document.getElementById('bottom-nav');
+    if (bottomNav) {
+        const isSettings = typeof Router !== 'undefined' && (Router.currentRoute === '/settings' || Router.currentRoute.startsWith('/settings'));
+        if (isSettings) {
+            bottomNav.style.display = 'none';
+        } else {
+            bottomNav.style.display = '';
+        }
+    }
+    const playerBar = document.getElementById('player-bar');
+    if (playerBar && Store.currentTrack) {
+        playerBar.style.display = '';
+    }
 }
 
 function showMobilePlayer() {
@@ -716,6 +729,10 @@ function showMobilePlayer() {
     if (!overlay || !Store.currentTrack) return;
     
     document.body.classList.add('mobile-player-open');
+    const bottomNav = document.getElementById('bottom-nav');
+    if (bottomNav) bottomNav.style.display = 'none';
+    const playerBar = document.getElementById('player-bar');
+    if (playerBar) playerBar.style.display = 'none';
     const track = Store.currentTrack;
     const isPlaying = Store.isPlaying;
     const liked = Store.isLiked(track.id);
