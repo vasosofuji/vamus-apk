@@ -598,7 +598,15 @@ function renderAlbumPage(container, id) {
 // ===== SETTINGS PAGE =====
 function renderSettingsPage(container) {
     let html = '<div class="animate-fade-up">';
-    html += '<div class="page-header"><h1>Settings</h1><p>Customize app appearance, audio preferences, and API connections.</p></div>';
+    html += `<div class="page-header" style="display:flex;align-items:center;gap:12px;margin-bottom:1.5rem">
+        <button class="btn-icon back-btn" onclick="history.back()" title="Go Back" style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid var(--border-color);display:inline-flex;align-items:center;justify-content:center;color:var(--text-primary);cursor:pointer">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div>
+            <h1 style="margin:0;font-size:1.8rem;font-weight:700">Settings</h1>
+            <p style="margin:2px 0 0 0;font-size:0.88rem;color:var(--text-secondary)">Customize app appearance, audio preferences, and API connections.</p>
+        </div>
+    </div>`;
     
     html += `<div class="settings-menu-grid">
         <div class="settings-menu-card" onclick="openAppearanceModal()">
