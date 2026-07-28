@@ -438,13 +438,17 @@ public class MediaPlaybackService extends Service {
     }
 
     // --------------------------------------------------------- advance / retry
+    private final java.util.Set<String> nativelyPlayedTrackIds = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
     private void onTrackFinished(final boolean isError) {
         long played = currentTrackStartMs > 0
                 ? (System.currentTimeMillis() - currentTrackStartMs)
                 : 0;
         currentTrackStartMs = 0;
 
-        boolean reallyPlayed = !isError && played >= MIN_PLAYED_MS_FOR_SUCCESS;
+        // If the track played for >= 5s, consider it finished so we advance
+        // to the next track rather than rewinding and retrying the same track from 0:00.
+        boolean reallyPlayed = played >= MIN_PLAYED_MS_FOR_SUCCESS;
         dbg("finished isError=" + isError + " played=" + played + "ms"
                 + " reallyPlayed=" + reallyPlayed
                 + " sameRetry=" + sameTrackRetries + " skips=" + consecutiveSkips);
@@ -508,7 +512,8 @@ public class MediaPlaybackService extends Service {
             public void run() {
                 try {
                     if (currentUrl == null) return;
-                    String shortIdStr = shortId(currentUrl);
+                    final String shortIdStr = shortId(currentUrl);
+                    nativelyPlayedTrackIds.add(shortIdStr);
                     String u = "http://127.0.0.1:5000/api/radio?id=" + java.net.URLEncoder.encode(shortIdStr, "UTF-8");
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
                     conn.setConnectTimeout(4000);
@@ -522,12 +527,35 @@ public class MediaPlaybackService extends Service {
                         reader.close();
 
                         org.json.JSONArray arr = new org.json.JSONArray(sb.toString());
-                        if (arr.length() > 0) {
-                            org.json.JSONObject obj = arr.getJSONObject(0);
-                            final String nextId = obj.optString("id");
-                            final String title = obj.optString("title", "");
-                            final String artist = obj.optJSONObject("channel") != null ? obj.optJSONObject("channel").optString("name", "") : obj.optString("artist", "");
-                            final String thumb = obj.optString("thumbnail", "");
+                        org.json.JSONObject objToPlay = null;
+                        for (int i = 0; i < arr.length(); i++) {
+                            org.json.JSONObject candidate = arr.getJSONObject(i);
+                            String cid = candidate.optString("id");
+                            if (cid != null && !cid.isEmpty() && !cid.equals(shortIdStr) && !nativelyPlayedTrackIds.contains(cid)) {
+                                objToPlay = candidate;
+                                break;
+                            }
+                        }
+                        if (objToPlay == null && arr.length() > 0) {
+                            for (int i = 0; i < arr.length(); i++) {
+                                org.json.JSONObject candidate = arr.getJSONObject(i);
+                                String cid = candidate.optString("id");
+                                if (cid != null && !cid.isEmpty() && !cid.equals(shortIdStr)) {
+                                    objToPlay = candidate;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (objToPlay != null) {
+                            final String nextId = objToPlay.optString("id");
+                            nativelyPlayedTrackIds.add(nextId);
+                            if (nativelyPlayedTrackIds.size() > 60) {
+                                nativelyPlayedTrackIds.clear();
+                            }
+                            final String title = objToPlay.optString("title", "");
+                            final String artist = objToPlay.optJSONObject("channel") != null ? objToPlay.optJSONObject("channel").optString("name", "") : objToPlay.optString("artist", "");
+                            final String thumb = objToPlay.optString("thumbnail", "");
                             final String streamUrl = "http://127.0.0.1:5000/api/stream?id=" + nextId;
 
                             mainHandler.post(new Runnable() {

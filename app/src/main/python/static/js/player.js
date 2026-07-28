@@ -664,6 +664,7 @@ const Player = {
         Store.addToRecent(track);
         this.showPlayerBar();
         this.updatePlayerUI();
+        this._pushNextTrackToNative();
         Store.emit('trackChanged');
     },
 

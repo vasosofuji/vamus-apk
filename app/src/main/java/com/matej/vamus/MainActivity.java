@@ -47,6 +47,8 @@ public class MainActivity extends BridgeActivity {
     // Full native mirror of the JS queue so native can keep advancing while
     // the WebView JS is throttled.
     private final java.util.List<MediaPlaybackService.NextTrackInfo> nativeQueue = new java.util.ArrayList<>();
+    private final java.util.List<MediaPlaybackService.NextTrackInfo> fullNativeQueueBackup = new java.util.ArrayList<>();
+    private volatile MediaPlaybackService.NextTrackInfo currentNativeTrackInfo = null;
     private volatile String nativeCurrentTrackId = null;
     private volatile String nativeRepeat = "none"; // "none" | "all" | "one"
     private volatile boolean nativeShuffle = false;
@@ -58,27 +60,38 @@ public class MainActivity extends BridgeActivity {
     public MediaPlaybackService.NextTrackInfo consumeNextTrackInfo() {
         MediaPlaybackService.NextTrackInfo n = pendingNextTrack;
         pendingNextTrack = null;
-        if (n != null) return n;
+        if (n != null) {
+            currentNativeTrackInfo = n;
+            nativeCurrentTrackId = n.trackId;
+            return n;
+        }
         // Fall back to computing from the native queue mirror.
         return computeNextFromNativeQueue();
     }
 
     private synchronized MediaPlaybackService.NextTrackInfo computeNextFromNativeQueue() {
-        if (nativeCurrentTrackId == null) return null;
-
         if ("one".equals(nativeRepeat)) {
-            for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
-                if (nativeCurrentTrackId.equals(t.trackId)) return t;
+            if (currentNativeTrackInfo != null) return currentNativeTrackInfo;
+            if (nativeCurrentTrackId != null) {
+                for (MediaPlaybackService.NextTrackInfo t : fullNativeQueueBackup) {
+                    if (nativeCurrentTrackId.equals(t.trackId)) return t;
+                }
             }
             return null;
         }
 
-        if (nativeQueue.isEmpty()) return null;
+        if (nativeQueue.isEmpty()) {
+            if ("all".equals(nativeRepeat) && !fullNativeQueueBackup.isEmpty()) {
+                nativeQueue.addAll(fullNativeQueueBackup);
+            } else {
+                return null;
+            }
+        }
 
         if (nativeShuffle) {
             java.util.List<MediaPlaybackService.NextTrackInfo> others = new java.util.ArrayList<>();
             for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
-                if (!t.trackId.equals(nativeCurrentTrackId)) others.add(t);
+                if (nativeCurrentTrackId == null || !t.trackId.equals(nativeCurrentTrackId)) others.add(t);
             }
             if (others.isEmpty()) others.addAll(nativeQueue);
             if (others.isEmpty()) return null;
@@ -86,18 +99,21 @@ public class MainActivity extends BridgeActivity {
             MediaPlaybackService.NextTrackInfo pick = others.get(
                     new java.util.Random().nextInt(others.size()));
             nativeCurrentTrackId = pick.trackId;
+            currentNativeTrackInfo = pick;
             nativeQueue.remove(pick);
             return pick;
         }
 
         MediaPlaybackService.NextTrackInfo pick = nativeQueue.remove(0);
         nativeCurrentTrackId = pick.trackId;
+        currentNativeTrackInfo = pick;
         return pick;
     }
 
     public synchronized void setNativeQueue(String queueJson, String currentTrackId,
                                             String repeat, boolean shuffle) {
         nativeQueue.clear();
+        fullNativeQueueBackup.clear();
         nativeCurrentTrackId = currentTrackId;
         nativeRepeat = repeat != null ? repeat : "none";
         nativeShuffle = shuffle;
@@ -106,13 +122,18 @@ public class MainActivity extends BridgeActivity {
             org.json.JSONArray arr = new org.json.JSONArray(queueJson);
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject o = arr.getJSONObject(i);
-                nativeQueue.add(new MediaPlaybackService.NextTrackInfo(
+                MediaPlaybackService.NextTrackInfo info = new MediaPlaybackService.NextTrackInfo(
                         o.optString("id", ""),
                         o.optString("streamUrl", ""),
                         o.optString("title", ""),
                         o.optString("artist", ""),
                         o.optString("thumbnail", "")
-                ));
+                );
+                nativeQueue.add(info);
+                fullNativeQueueBackup.add(info);
+                if (currentTrackId != null && currentTrackId.equals(info.trackId)) {
+                    currentNativeTrackInfo = info;
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -540,6 +561,8 @@ public class MainActivity extends BridgeActivity {
      */
     public void applyPendingNextMetadata(final MediaPlaybackService.NextTrackInfo next) {
         if (next == null) return;
+        currentNativeTrackInfo = next;
+        nativeCurrentTrackId = next.trackId;
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
