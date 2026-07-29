@@ -441,27 +441,16 @@ const Player = {
     },
     
     onError(e) {
-        console.error('Audio error, trying Piped fallback...');
+        console.error('Audio error:', e);
         if (!Store.currentTrack) return;
-        // Try Piped directly as fallback
-        fetch(`https://api.piped.private.coffee/streams/${Store.currentTrack.id}`)
-            .then(r => r.json())
-            .then(data => {
-                const streams = (data.audioStreams || [])
-                    .filter(s => s.mimeType && s.mimeType.startsWith('audio/'))
-                    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-                if (streams.length > 0) {
-                    const url = streams[0].url;
-                    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-                        window.AndroidMediaSession.playUri(url, false, 0);
-                    } else {
-                        this.audio.src = url;
-                        this.audio.play().catch(() => {});
-                    }
-                }
-            }).catch(() => {
-                console.error('Piped fallback also failed');
-            });
+        // Retry via Flask stream endpoint
+        const retryUrl = getApiUrl(`/api/stream?id=${Store.currentTrack.id}&t=${Date.now()}`);
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
+            window.AndroidMediaSession.playUri(retryUrl, false, 0);
+        } else if (this.audio) {
+            this.audio.src = retryUrl;
+            this.audio.play().catch(() => this.playNext());
+        }
     },
     
     seekTo(event) {

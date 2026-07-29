@@ -292,15 +292,59 @@ def set_cached_stream_url(video_id, stream_url, source, fmt, ttl=12600):
         }
 
 
+def resolve_innertube_stream(video_id):
+    """Direct Innertube resolution using ANDROID_VR client.
+    Returns direct unthrottled googlevideo audio stream URL in ~100ms.
+    """
+    try:
+        url = 'https://www.youtube.com/youtubei/v1/player'
+        payload = {
+            'context': {
+                'client': {
+                    'clientName': 'ANDROID_VR',
+                    'clientVersion': '1.54.19',
+                    'hl': 'en',
+                    'gl': 'US'
+                }
+            },
+            'videoId': video_id
+        }
+        resp = http_requests.post(url, json=payload, timeout=4)
+        if resp.status_code == 200:
+            data = resp.json()
+            streaming = data.get('streamingData', {})
+            formats = streaming.get('adaptiveFormats', []) + streaming.get('formats', [])
+            audio_streams = [
+                f for f in formats
+                if (f.get('mimeType', '').startswith('audio/') or f.get('audioQuality')) and f.get('url')
+            ]
+            if audio_streams:
+                def _sort_key(f):
+                    is_m4a = 'm4a' in f.get('mimeType', '') or 'mp4' in f.get('mimeType', '')
+                    bitrate = int(f.get('bitrate', 0) or 0)
+                    return (1 if is_m4a else 0, bitrate)
+                audio_streams.sort(key=_sort_key, reverse=True)
+                chosen = audio_streams[0]
+                return chosen.get('url'), 'innertube:android_vr', chosen.get('mimeType', 'audio/mp4')
+    except Exception as e:
+        dlog('  innertube:android_vr FAIL: %s' % str(e)[:120])
+    return None, None, None
+
+
 def resolve_stream_url(video_id):
     cached_url, source, chosen_fmt = get_cached_stream_url(video_id)
     if cached_url:
         return cached_url, source, chosen_fmt, True
 
     dlog('STREAM resolve req id=%s' % video_id)
-    stream_url = None
-    source = None
-    chosen_fmt = None
+    t0 = _time.time()
+    
+    # 1. Fast direct Innertube stream resolution (~100ms)
+    stream_url, source, chosen_fmt = resolve_innertube_stream(video_id)
+    if stream_url:
+        dlog('  innertube:android_vr OK fmt=%s %.2fs' % (chosen_fmt, _time.time() - t0))
+        set_cached_stream_url(video_id, stream_url, source, chosen_fmt)
+        return stream_url, source, chosen_fmt, False
 
     ytdlp_configs = [
         (['android_music'], '140/bestaudio[ext=m4a]/bestaudio'),
