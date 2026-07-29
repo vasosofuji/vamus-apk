@@ -3,7 +3,7 @@
 <p align="center">
   <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="Vamus Logo" /><br><br>
   <a href="https://github.com/vasosofuji/vamus-apk/raw/main/vamus-latest.apk">
-    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.0-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
+    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.8-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
   </a>
 </p>
 
@@ -16,7 +16,9 @@
 - ⚡ **Instant Playback & Zero-Delay Scrubbing**: Powered by an ExoPlayer 250 MB LRU disk cache and backend stream URL pre-fetching, seeking through songs is near-instantaneous.
 - 🔁 **Full Queue & Repeat Control**: Support for interactive play queues, intelligent shuffle (consumes queue items without duplicates), Repeat One (`'one'`), and Repeat All (`'all'`).
 - 🎨 **Carousel Media Player**: Fullscreen player with swipe carousel gesture controls and pre-loaded album cover artwork previews.
-- 🎤 **Synchronized Lyrics**: Real-time lyrics overlay for supported tracks.
+- 🎤 **Synchronized Lyrics**: Real-time lyrics overlay for supported tracks, with a plain-lyrics fallback when no synced version exists.
+- ✈️ **Offline Downloads**: Save tracks to device storage for travel and play them with no connection, managed from a dedicated Offline Downloads screen.
+- 👉 **Swipe to Queue**: Swipe a track row to the right to drop it straight into the play queue.
 - 🖌️ **Custom Themes & Wallpapers**: Personalized themes (Electric Amber, Cyberpunk Neon, Emerald, Spotify Dark), custom color pickers, adjustable glassmorphism blur, and custom background wallpapers.
 - 📦 **Data Backup & Restore**: One-click JSON Export & Import inside Settings to safeguard your playlists, liked songs, and settings.
 - 🤖 **Optional AI Recommendations**: Opt-in Google Gemini API key integration for AI-curated music recommendations based on your listening history.
@@ -43,13 +45,13 @@ Use the bottom navigation bar to switch between main views:
   - **Repeat One (`one`)**: Continuously replays the current track until toggled off.
 
 ### 3. Creating & Managing Playlists
-1. Go to **Library** $\rightarrow$ **Playlists** $\rightarrow$ **Create New Playlist**.
+1. Go to **Library** → **Playlists** → **Create New Playlist**.
 2. To add songs: tap the `⋮` menu on any track card or row and select **Add to Playlist**.
 3. Customize playlist cover images, colors, and descriptions anytime.
 
 ### 4. Backing Up & Restoring Your Data
 To ensure you never lose your playlists or liked songs:
-1. Go to **Settings** $\rightarrow$ **Data Management & Danger Zone**.
+1. Go to **Settings** → **Data Management & Danger Zone**.
 2. Tap **📥 Export Backup** to download a `vamus_backup_YYYY-MM-DD.json` file.
 3. Tap **📤 Import Backup** anytime to restore your data on any device or clean installation.
 
@@ -77,7 +79,7 @@ The compiled APK will be generated at:
 When installing an updated APK over an existing version on your Android device:
 1. Keep the `applicationId` (`com.matej.vamus`) identical in `app/build.gradle`.
 2. Build the update APK with the same signing key/keystore.
-3. Increment `versionCode` in `app/build.gradle` (e.g. `versionCode 1` $\rightarrow$ `versionCode 2`).
+3. Increment `versionCode` in `app/build.gradle` (e.g. `versionCode 1` → `versionCode 2`).
 4. Install the new APK over the existing app. Android will preserve all your playlists, history, and settings in-place!
 
 ---
@@ -89,13 +91,23 @@ android/
 ├── app/
 │   └── src/
 │       └── main/
-│           ├── java/com/matej/vamus/   # Native Android Services (ExoPlayer MediaPlaybackService, MainActivity)
+│           ├── assets/public/           # Web frontend the WebView actually loads (build copy, gitignored)
+│           ├── java/com/matej/vamus/    # Native Android services (ExoPlayer MediaPlaybackService, MainActivity)
 │           ├── python/                  # Backend Python application logic & Flask APIs
-│           │   ├── static/              # Web Frontend (HTML, CSS, JS routing, Store, & Player)
+│           │   ├── static/              # Tracked copy of the web frontend (HTML, CSS, JS, Store, Player)
 │           │   └── app.py               # Main Python app module
 │           └── res/                     # Scaled Android drawable & launcher assets
 └── build.gradle                         # Gradle app dependencies & Python configuration
 ```
+
+> [!NOTE]
+> **The frontend lives in two places.** Capacitor serves the UI from `assets/public/`
+> (gitignored build copy), while `python/static/` is the version tracked in git and
+> bundled with the Flask backend. Editing only one of them is the most common way to
+> make a change that appears to do nothing — keep both in sync.
+
+At runtime `MainActivity` starts the Flask app via Chaquopy on `127.0.0.1:5000`, which
+serves the API; audio playback is handled natively by Media3 ExoPlayer.
 
 ---
 

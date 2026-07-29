@@ -9,7 +9,10 @@ window.VamusDebug = {
     _autoTimer: null,
 
     // Send a line to the shared Flask buffer so it interleaves with native logs.
+    // No-op unless developer options are on: otherwise every play action would
+    // cost an extra HTTP round-trip on the hot playback path.
     log(msg) {
+        if (typeof Store === 'undefined' || !Store.developerOptionsEnabled) return;
         try {
             const url = getApiUrl('/api/debug/push?m=' + encodeURIComponent('[js] ' + msg));
             fetch(url).catch(() => {});

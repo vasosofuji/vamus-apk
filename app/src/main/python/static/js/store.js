@@ -189,6 +189,10 @@ const Store = {
                     this.theme = { ...this.theme, ...JSON.parse(savedTheme) };
                 } catch(e) {}
             }
+        } catch(e) {
+            console.error('Failed to load store from localStorage', e);
+        }
+
         // Persistent Backend Data Auto-Restore & Sync
         this._syncWithBackend();
     },

@@ -1,6 +1,9 @@
 # Vamus — Prebuilt APK
 
-**File:** `vamus-1.0-debug.apk` (versionName 1.0, versionCode 1)
+**File:** `vamus.apk` (versionName 1.0.8, versionCode 9)
+
+> This is the same build as `vamus-latest.apk` in the repository root, which is
+> the copy the main README links to.
 
 ## About this build
 - Debug build, signed with the standard Android debug key — installable by
