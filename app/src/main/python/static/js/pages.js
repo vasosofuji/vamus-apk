@@ -1,4 +1,3 @@
-// SVG icon helpers
 const ICONS = {
     heart: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>',
     heartFilled: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>',
@@ -6,7 +5,37 @@ const ICONS = {
     play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21"/></svg>',
     clock: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     x: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    downloadCheck: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1DB954" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="20 6 9 17 4 12"/></svg>',
+    trash: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>'
 };
+
+async function handleTrackDownloadClick(track, btnEl) {
+    if (!track || !track.id) return;
+    if (Store.isDownloaded(track.id)) {
+        if (confirm(`Remove offline download for "${track.title || 'this track'}"?`)) {
+            await Store.deleteDownload(track.id);
+            showToast('Download removed', 'info');
+            if (Router.currentRoute === '/downloads') Router.render('/downloads');
+            else if (Router.currentRoute) Router.render(Router.currentRoute);
+        }
+        return;
+    }
+    if (Store.isDownloading(track.id)) return;
+
+    if (btnEl) {
+        btnEl.classList.add('downloading');
+        btnEl.innerHTML = '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
+    }
+    showToast(`Downloading "${track.title || 'track'}" for offline travels...`, 'info');
+    const success = await Store.downloadTrack(track);
+    if (success) {
+        showToast(`Downloaded "${track.title || 'track'}"! Saved for offline travels.`, 'success');
+    } else {
+        showToast(`Download failed for "${track.title || 'track'}"`, 'error');
+    }
+    if (Router.currentRoute) Router.render(Router.currentRoute);
+}
 
 var FALLBACK_IMG = window.FALLBACK_IMG || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><rect width='200' height='200' fill='%231e1b4b'/><circle cx='100' cy='100' r='75' fill='%230f172a'/><circle cx='100' cy='100' r='55' fill='none' stroke='%23334155' stroke-width='3'/><circle cx='100' cy='100' r='35' fill='none' stroke='%23475569' stroke-width='2'/><circle cx='100' cy='100' r='20' fill='%237c3aed'/><circle cx='100' cy='100' r='6' fill='%23ffffff'/></svg>";
 
@@ -54,6 +83,8 @@ function renderTrackList(tracks, container, options = {}) {
     tracks.forEach((track, i) => {
         const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
         const liked = Store.isLiked(track.id);
+        const isDownloaded = Store.isDownloaded(track.id);
+        const isDownloading = Store.isDownloading(track.id);
         const artistName = track.channel?.name || track.artist || '';
         const durSec = track.durationInSec || track.duration || 0;
         const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
@@ -70,6 +101,9 @@ function renderTrackList(tracks, container, options = {}) {
                 </div>
                 <div class="col-artist">${escapeHtml(artistName)}</div>
                 <div class="col-actions">
+                    <button class="btn-icon download-btn ${isDownloaded ? 'active' : ''}" title="${isDownloaded ? 'Delete Download' : 'Download for Offline Travels'}" onclick="event.stopPropagation(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))}, this)">
+                        ${isDownloading ? '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>' : (isDownloaded ? ICONS.downloadCheck : ICONS.download)}
+                    </button>
                     <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
@@ -354,6 +388,16 @@ function renderLibraryPage(container) {
     let html = '<div class="animate-fade-up">';
     html += '<div class="page-header"><h1 class="home-greeting">Your Library</h1></div>';
     
+    // Offline Downloads quick banner
+    html += `<div class="settings-menu-card" onclick="navigate('/downloads')" style="margin-bottom:2rem;background:linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.05));border:1px solid rgba(16,185,129,0.3);cursor:pointer">
+        <div class="settings-menu-icon" style="color:#10b981;display:flex;align-items:center;justify-content:center">${ICONS.download}</div>
+        <div class="settings-menu-info">
+            <div class="settings-menu-title" style="font-size:1.1rem;font-weight:700">Downloaded Songs (Offline Travels)</div>
+            <div class="settings-menu-desc">${Store.downloadedTracks.length} songs downloaded for offline listening</div>
+        </div>
+        <div style="font-size:1.2rem;color:var(--text-muted)">→</div>
+    </div>`;
+
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
         <h2 class="section-title" style="margin:0">Playlists</h2>
         ${Store.playlists.length > 0 ? `<button class="action-btn primary" onclick="showCreatePlaylist()">+ Create Playlist</button>` : ''}
@@ -384,6 +428,47 @@ function renderLibraryPage(container) {
     
     html += '</div>';
     container.innerHTML = html;
+}
+
+// ===== DOWNLOADED SONGS PAGE =====
+function renderDownloadedPage(container) {
+    let html = '<div class="animate-fade-up">';
+    
+    // Hero
+    html += `<div class="hero-section" style="background:linear-gradient(135deg, #059669, #10b981);display:flex;align-items:center;gap:1.5rem;padding:2.5rem 2rem;border-radius:16px;margin-bottom:2rem">
+        <div class="hero-icon" style="width:96px;height:96px;border-radius:16px;background:rgba(255,255,255,0.18);display:flex;align-items:center;justify-content:center;color:#fff">
+            ${ICONS.download}
+        </div>
+        <div class="hero-info">
+            <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Offline Music</div>
+            <h1 style="margin:0.25rem 0;font-size:2.2rem;font-weight:800">Downloaded Songs</h1>
+            <p class="hero-meta" style="margin:0;opacity:0.9">${Store.downloadedTracks.length} tracks saved for offline travels</p>
+        </div>
+    </div>`;
+    
+    if (Store.downloadedTracks.length > 0) {
+        html += '<div class="hero-actions" style="display:flex;gap:1rem;margin-bottom:1.5rem">';
+        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.downloadedTracks[0], Store.downloadedTracks)">▶ Play Offline All</button>`;
+        html += `<button class="action-btn secondary" onclick="Player.playTrack(Store.downloadedTracks[Math.floor(Math.random()*Store.downloadedTracks.length)], Store.downloadedTracks)">⤮ Shuffle</button>`;
+        html += '</div>';
+        html += '<div id="downloaded-tracks"></div>';
+    } else {
+        html += `<div class="empty-state">
+            ${ICONS.download}
+            <h3>No downloaded songs yet</h3>
+            <p>Tap the download button on any track to save it for offline travels</p>
+        </div>`;
+    }
+    
+    html += '</div>';
+    container.innerHTML = html;
+    
+    if (Store.downloadedTracks.length > 0) {
+        renderTrackList(Store.downloadedTracks, document.getElementById('downloaded-tracks'), {
+            showRemove: true,
+            onRemove: `(function(id){ Store.deleteDownload(id).then(() => { showToast('Download removed', 'info'); Router.render('/downloads'); }); })`
+        });
+    }
 }
 
 // ===== LIKED SONGS PAGE =====

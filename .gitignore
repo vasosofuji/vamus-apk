@@ -121,3 +121,4 @@ __pycache__/
 # Local instruction files
 UPDATEINSTRUCTIONS.txt
 vamus_user_data.json
+app/src/main/python/downloads/

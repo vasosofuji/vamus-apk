@@ -124,6 +124,8 @@ const Store = {
     likedSongs: [],
     playlists: [],
     recentlyPlayed: [],
+    downloadedTracks: [],
+    downloadingIds: new Set(),
     shuffle: false,
     repeat: 'none', // 'none' | 'all' | 'one'
     crossfadeEnabled: false,
@@ -318,6 +320,83 @@ const Store = {
         this.emit('playlistsChanged');
     },
     
+    // Offline Downloads
+    async loadDownloads() {
+        try {
+            const resp = await fetch(getApiUrl('/api/downloads'));
+            if (resp.ok) {
+                const list = await resp.json();
+                this.downloadedTracks = Array.isArray(list) ? list : [];
+                this.emit('downloadsChanged');
+            }
+        } catch(e) {
+            console.warn('Failed to load downloaded tracks:', e);
+        }
+    },
+    isDownloaded(trackId) {
+        return this.downloadedTracks.some(t => t.id === trackId);
+    },
+    isDownloading(trackId) {
+        return this.downloadingIds.has(trackId);
+    },
+    async downloadTrack(track) {
+        if (!track || !track.id) return;
+        if (this.isDownloaded(track.id)) return;
+        if (this.isDownloading(track.id)) return;
+
+        this.downloadingIds.add(track.id);
+        this.emit('downloadsChanged');
+
+        try {
+            const payload = {
+                id: track.id,
+                title: track.title || 'Unknown Track',
+                artist: (track.channel && track.channel.name) || track.artist || 'Unknown Artist',
+                thumbnail: track.thumbnail || '',
+                durationInSec: track.durationInSec || 0
+            };
+            const resp = await fetch(getApiUrl('/api/download'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            this.downloadingIds.delete(track.id);
+
+            if (data.ok && data.track) {
+                const existingIdx = this.downloadedTracks.findIndex(t => t.id === track.id);
+                if (existingIdx >= 0) {
+                    this.downloadedTracks[existingIdx] = data.track;
+                } else {
+                    this.downloadedTracks = [data.track, ...this.downloadedTracks];
+                }
+                this.emit('downloadsChanged');
+                return true;
+            }
+        } catch(e) {
+            console.error('Download track error:', e);
+            this.downloadingIds.delete(track.id);
+            this.emit('downloadsChanged');
+        }
+        return false;
+    },
+    async deleteDownload(trackId) {
+        if (!trackId) return;
+        try {
+            await fetch(getApiUrl('/api/downloads/delete'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: trackId })
+            });
+            this.downloadedTracks = this.downloadedTracks.filter(t => t.id !== trackId);
+            this.emit('downloadsChanged');
+            return true;
+        } catch(e) {
+            console.error('Delete download error:', e);
+        }
+        return false;
+    },
+
     // Recently played
     addToRecent(track) {
         this.recentlyPlayed = [track, ...this.recentlyPlayed.filter(t => t.id !== track.id)].slice(0, 30);
@@ -326,3 +405,4 @@ const Store = {
 };
 
 Store.load();
+Store.loadDownloads();

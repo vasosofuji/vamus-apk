@@ -1418,6 +1418,177 @@ def api_sync_user_data():
 
 
 # ---------------------------------------------------------------------------
+# Offline Music Downloads Engine
+# Downloads tracks to local storage so users can play them offline on travels.
+# Includes metadata registry, streaming file server, public export, and deletion.
+# ---------------------------------------------------------------------------
+DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+DOWNLOADS_META_PATH = os.path.join(DOWNLOADS_DIR, 'metadata.json')
+_downloads_lock = _threading.Lock()
+
+
+def _load_downloads_metadata():
+    with _downloads_lock:
+        if os.path.exists(DOWNLOADS_META_PATH):
+            try:
+                with open(DOWNLOADS_META_PATH, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+
+def _save_downloads_metadata(meta):
+    with _downloads_lock:
+        try:
+            with open(DOWNLOADS_META_PATH, 'w', encoding='utf-8') as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            dlog(f"DOWNLOADS META save error: {e}")
+
+
+@app.route('/api/downloads', methods=['GET'])
+def api_get_downloads():
+    meta = _load_downloads_metadata()
+    valid_list = []
+    for vid, track_info in list(meta.items()):
+        filepath = os.path.join(DOWNLOADS_DIR, f"{vid}.mp3")
+        if os.path.exists(filepath):
+            valid_list.append(track_info)
+    return jsonify(valid_list)
+
+
+@app.route('/api/downloads/audio/<video_id>')
+def api_serve_downloaded_audio(video_id):
+    clean_id = re.sub(r'[^a-zA-Z0-9_-]', '', video_id)
+    filename = f"{clean_id}.mp3"
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    if os.path.exists(filepath):
+        return send_from_directory(DOWNLOADS_DIR, filename, mimetype='audio/mpeg')
+    return jsonify({'error': 'File not found'}), 404
+
+
+@app.route('/api/download', methods=['GET', 'POST'])
+def api_download_track():
+    body = request.get_json(silent=True) or {}
+    video_id = (request.args.get('id') or body.get('id') or '').strip()
+    title = (request.args.get('title') or body.get('title') or 'Unknown Track').strip()
+    artist = (request.args.get('artist') or body.get('artist') or 'Unknown Artist').strip()
+    thumbnail = (request.args.get('thumbnail') or body.get('thumbnail') or '').strip()
+    duration = int(request.args.get('durationInSec') or body.get('durationInSec') or 0)
+
+    if not video_id:
+        return jsonify({'ok': False, 'error': 'Missing track id'}), 400
+
+    clean_id = re.sub(r'[^a-zA-Z0-9_-]', '', video_id)
+    filename = f"{clean_id}.mp3"
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+
+    if os.path.exists(filepath) and os.path.getsize(filepath) > 10000:
+        meta = _load_downloads_metadata()
+        track_info = meta.get(clean_id) or {
+            'id': clean_id,
+            'title': title,
+            'artist': artist,
+            'thumbnail': thumbnail,
+            'durationInSec': duration,
+            'offlineUrl': f'/api/downloads/audio/{clean_id}',
+            'downloadedAt': _time.time()
+        }
+        return jsonify({'ok': True, 'message': 'Already downloaded', 'track': track_info})
+
+    dlog(f"DOWNLOAD start id={clean_id} title='{title}'")
+
+    # 1. Resolve stream URL
+    stream_url, source, chosen_fmt, _ = resolve_stream_url(clean_id)
+    if not stream_url:
+        dlog(f"DOWNLOAD FAIL id={clean_id} (could not resolve stream URL)")
+        return jsonify({'ok': False, 'error': 'Could not resolve audio stream URL'}), 502
+
+    # 2. Download audio stream to file
+    try:
+        req = http_requests.get(stream_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=30)
+        req.raise_for_status()
+        temp_path = filepath + '.tmp'
+        written_bytes = 0
+        with open(temp_path, 'wb') as f:
+            for chunk in req.iter_content(chunk_size=65536):
+                if chunk:
+                    f.write(chunk)
+                    written_bytes += len(chunk)
+
+        if written_bytes < 5000:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify({'ok': False, 'error': 'Downloaded audio file is invalid'}), 502
+
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        os.rename(temp_path, filepath)
+
+        # Try copying to Android public Music/Downloads folder if accessible
+        try:
+            pub_dir = '/storage/emulated/0/Download/Vamus'
+            os.makedirs(pub_dir, exist_ok=True)
+            safe_name = re.sub(r'[\\/*?:"<>|]', '', f"{artist} - {title}.mp3")
+            pub_path = os.path.join(pub_dir, safe_name)
+            import shutil
+            shutil.copyfile(filepath, pub_path)
+            dlog(f"DOWNLOAD copied to public storage: {pub_path}")
+        except Exception:
+            pass
+
+        meta = _load_downloads_metadata()
+        track_info = {
+            'id': clean_id,
+            'title': title,
+            'artist': artist,
+            'channel': {'name': artist},
+            'thumbnail': thumbnail,
+            'durationInSec': duration,
+            'offlineUrl': f'/api/downloads/audio/{clean_id}',
+            'fileSize': written_bytes,
+            'downloadedAt': _time.time()
+        }
+        meta[clean_id] = track_info
+        _save_downloads_metadata(meta)
+
+        dlog(f"DOWNLOAD OK id={clean_id} size={written_bytes} bytes")
+        return jsonify({'ok': True, 'message': 'Download successful', 'track': track_info})
+
+    except Exception as e:
+        dlog(f"DOWNLOAD FAIL id={clean_id} err={e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/downloads/delete', methods=['POST'])
+def api_delete_download():
+    body = request.get_json(silent=True) or {}
+    video_id = (body.get('id') or request.args.get('id') or '').strip()
+    if not video_id:
+        return jsonify({'ok': False, 'error': 'Missing track id'}), 400
+
+    clean_id = re.sub(r'[^a-zA-Z0-9_-]', '', video_id)
+    filename = f"{clean_id}.mp3"
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except Exception as e:
+            dlog(f"DOWNLOAD delete file error: {e}")
+
+    meta = _load_downloads_metadata()
+    if clean_id in meta:
+        del meta[clean_id]
+        _save_downloads_metadata(meta)
+
+    dlog(f"DOWNLOAD DELETED id={clean_id}")
+    return jsonify({'ok': True, 'message': 'Download removed'})
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 

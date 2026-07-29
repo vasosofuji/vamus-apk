@@ -60,6 +60,8 @@ const Router = {
             renderLibraryPage(content);
         } else if (path === '/liked') {
             renderLikedPage(content);
+        } else if (path === '/downloads') {
+            renderDownloadedPage(content);
         } else if (path === '/settings') {
             renderSettingsPage(content);
         } else if (path.startsWith('/artist/')) {

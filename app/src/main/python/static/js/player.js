@@ -123,7 +123,9 @@ const Player = {
             window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
         
-        const url = getApiUrl(`/api/stream?id=${track.id}`);
+        const url = Store.isDownloaded(track.id)
+            ? getApiUrl(`/api/downloads/audio/${track.id}`)
+            : getApiUrl(`/api/stream?id=${track.id}`);
         
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
             window.AndroidMediaSession.playUri(url, false, 0);
@@ -161,7 +163,9 @@ const Player = {
             window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
         
-        const url = getApiUrl(`/api/stream?id=${track.id}`);
+        const url = Store.isDownloaded(track.id)
+            ? getApiUrl(`/api/downloads/audio/${track.id}`)
+            : getApiUrl(`/api/stream?id=${track.id}`);
         const rawCfDuration = Store.crossfadeDuration || 5;
         const currentDur = (this.audio && this.audio.duration) ? this.audio.duration : 30;
         const effectiveCfDuration = Math.max(1, Math.min(rawCfDuration, currentDur * 0.4));
