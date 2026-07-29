@@ -187,10 +187,69 @@ const Store = {
                     this.theme = { ...this.theme, ...JSON.parse(savedTheme) };
                 } catch(e) {}
             }
-        } catch(e) { console.error('Failed to load store', e); }
+        // Persistent Backend Data Auto-Restore & Sync
+        this._syncWithBackend();
     },
-    
-    // Save to localStorage
+
+    async _syncWithBackend() {
+        try {
+            const resp = await fetch(getApiUrl('/api/user/data'));
+            if (!resp.ok) return;
+            const res = await resp.json();
+            if (res.ok && res.data) {
+                const bData = res.data;
+                let restored = false;
+                
+                // If localStorage was cleared or missing items, recover from persistent file
+                if ((!this.playlists || this.playlists.length === 0) && bData.playlists && bData.playlists.length > 0) {
+                    this.playlists = bData.playlists;
+                    restored = true;
+                }
+                if ((!this.likedSongs || this.likedSongs.length === 0) && bData.likedSongs && bData.likedSongs.length > 0) {
+                    this.likedSongs = bData.likedSongs;
+                    restored = true;
+                }
+                if (bData.theme && (!localStorage.getItem('vamus_theme_config') || Object.keys(bData.theme).length > 0)) {
+                    this.theme = { ...this.theme, ...bData.theme };
+                    restored = true;
+                }
+                
+                if (restored) {
+                    this.save();
+                    this.emit('playlistsChanged');
+                    this.emit('likedChanged');
+                    this.emit('themeChanged');
+                } else {
+                    // Sync current state to backend file
+                    this._persistToBackend();
+                }
+            }
+        } catch(e) {
+            console.warn('Backend user data sync note:', e);
+        }
+    },
+
+    _persistToBackend() {
+        if (this._syncTimer) clearTimeout(this._syncTimer);
+        this._syncTimer = setTimeout(() => {
+            const payload = {
+                playlists: this.playlists,
+                likedSongs: this.likedSongs,
+                recentlyPlayed: this.recentlyPlayed,
+                theme: this.theme,
+                crossfadeEnabled: this.crossfadeEnabled,
+                crossfadeDuration: this.crossfadeDuration,
+                autoplayEnabled: this.autoplayEnabled
+            };
+            fetch(getApiUrl('/api/user/sync'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).catch(() => {});
+        }, 1000);
+    },
+
+    // Save to localStorage + persistent backend file
     save() {
         try { localStorage.setItem('likedSongs', JSON.stringify(this.likedSongs)); } catch(e) { console.error('Error saving likedSongs', e); }
         try { localStorage.setItem('playlists', JSON.stringify(this.playlists)); } catch(e) { console.error('Error saving playlists', e); }
@@ -202,6 +261,7 @@ const Store = {
         try { localStorage.setItem('repeat', String(this.repeat)); } catch(e) {}
         try { localStorage.setItem('developerOptionsEnabled', String(this.developerOptionsEnabled)); } catch(e) {}
         try { localStorage.setItem('vamus_theme_config', JSON.stringify(this.theme)); } catch(e) { console.error('Error saving vamus_theme_config', e); }
+        this._persistToBackend();
     },
     
     // Liked songs

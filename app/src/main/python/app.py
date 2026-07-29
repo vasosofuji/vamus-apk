@@ -1383,6 +1383,41 @@ def api_ai_recommend():
 
 
 # ---------------------------------------------------------------------------
+# Persistent User Data Backup & Restore Endpoints
+# Saves user playlists, liked songs, recently played, and custom theme config
+# to internal disk storage to survive WebView updates, scheme changes, and cache wipes.
+# ---------------------------------------------------------------------------
+def _get_user_data_path():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, 'vamus_user_data.json')
+
+@app.route('/api/user/data', methods=['GET'])
+def api_get_user_data():
+    path = _get_user_data_path()
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return jsonify({'ok': True, 'data': data})
+        except Exception as e:
+            dlog(f"USER DATA read error: {e}")
+    return jsonify({'ok': True, 'data': {}})
+
+@app.route('/api/user/sync', methods=['POST'])
+def api_sync_user_data():
+    try:
+        data = request.get_json(force=True) or {}
+        path = _get_user_data_path()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        dlog(f"USER DATA saved to disk: {len(data.get('playlists', []))} playlists, {len(data.get('likedSongs', []))} liked songs")
+        return jsonify({'ok': True})
+    except Exception as e:
+        dlog(f"USER DATA save error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
