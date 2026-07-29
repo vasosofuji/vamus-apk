@@ -19,11 +19,17 @@ const Player = {
     audio: null,
     progressTimer: null,
 
-    // Crossfade state
+    // Crossfade & Radio state
     _crossfadeAudio: null,      // the second audio element used during crossfade
     _isCrossfading: false,      // true while a crossfade transition is in progress
     _crossfadeInterval: null,   // the interval that drives the volume ramp
     _fetchingRadio: false,      // prevents duplicate radio fetches
+    _playedRadioTrackIds: [],   // ring buffer preventing auto-radio loops
+
+    _recordPlayedTrack(id) {
+        if (!id) return;
+        this._playedRadioTrackIds = [id, ...(this._playedRadioTrackIds || []).filter(x => x !== id)].slice(0, 60);
+    },
     
     init() {
         this.audio = document.getElementById('audio-player');
@@ -100,6 +106,7 @@ const Player = {
         
         Store.currentTrack = track;
         Store.isPlaying = true;
+        this._recordPlayedTrack(track.id);
 
         // Always remove the currently playing track from Store.queue to prevent duplicate entries
         Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
@@ -371,15 +378,20 @@ const Player = {
                 this._fetchingRadio = false;
                 if (!tracks || !tracks.length) return;
                 
-                // Filter out current track and any track in Store.queue
-                const existingIds = new Set((Store.queue || []).map(t => t.id));
+                // Filter out current track, queue, history, and recently played radio tracks
+                const existingIds = new Set([
+                    ...(Store.queue || []).map(t => t.id),
+                    ...(Store.history || []).map(t => t.id),
+                    ...(this._playedRadioTrackIds || [])
+                ]);
                 if (Store.currentTrack) existingIds.add(Store.currentTrack.id);
                 const newTracks = tracks.filter(t => !existingIds.has(t.id));
                 
                 if (newTracks.length > 0) {
                     this.playTrack(newTracks[0]);
                 } else if (tracks.length > 0) {
-                    this.playTrack(tracks[0]);
+                    const fallbackTrack = tracks.find(t => t.id !== Store.currentTrack?.id) || tracks[0];
+                    this.playTrack(fallbackTrack);
                 }
             })
             .catch(e => {
@@ -574,7 +586,18 @@ const Player = {
                 .then(r => r.json())
                 .then(tracks => {
                     if (!tracks || !tracks.length) return;
-                    const firstNew = tracks[0];
+                    const playedSet = new Set([
+                        ...(Store.history || []).map(t => t.id),
+                        ...(this._playedRadioTrackIds || [])
+                    ]);
+                    if (Store.currentTrack) playedSet.add(Store.currentTrack.id);
+
+                    const filteredRadio = tracks.filter(t => !playedSet.has(t.id));
+                    const firstNew = filteredRadio.length > 0
+                        ? filteredRadio[0]
+                        : (tracks.find(t => t.id !== Store.currentTrack?.id) || tracks[0]);
+
+                    if (!firstNew) return;
                     Store.nextAutoTrack = firstNew;
                     if (firstNew.thumbnail) preloadImage(firstNew.thumbnail);
 

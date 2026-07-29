@@ -498,6 +498,14 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden; transition: all 0.2s;
   -webkit-tap-highlight-color: transparent;
 }
+.download-btn { color: var(--text-muted); transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; }
+.download-btn:hover { color: var(--text-primary); transform: scale(1.1); }
+.download-btn.active { color: var(--primary-color, #1DB954); }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .quick-card:hover { background: rgba(255,255,255,0.1); transform: translateY(-1px); }
 .quick-card-icon {
   width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
