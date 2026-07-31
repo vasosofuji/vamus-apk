@@ -292,42 +292,84 @@ def set_cached_stream_url(video_id, stream_url, source, fmt, ttl=12600):
         }
 
 
+INNERTUBE_URL = 'https://www.youtube.com/youtubei/v1/player'
+
+# Innertube clients tried in order, fastest/most reliable first. Each entry is
+# (label, client context, extra HTTP headers). The IOS client returns direct,
+# unthrottled googlevideo audio URLs that honour HTTP Range requests, which is
+# what makes instant seeking work. ANDROID_VR is kept as a secondary because it
+# needs no special headers, but note it commonly answers LOGIN_REQUIRED
+# ("Sign in to confirm you're not a bot") — when that happens we fall through.
+INNERTUBE_CLIENTS = [
+    (
+        'ios',
+        {
+            'clientName': 'IOS',
+            'clientVersion': '20.10.4',
+            'deviceMake': 'Apple',
+            'deviceModel': 'iPhone16,2',
+            'osName': 'iPhone',
+            'osVersion': '18.3.2.22D82',
+            'hl': 'en',
+            'gl': 'US',
+        },
+        {
+            'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+            'Content-Type': 'application/json',
+        },
+    ),
+    (
+        'android_vr',
+        {
+            'clientName': 'ANDROID_VR',
+            'clientVersion': '1.54.19',
+            'hl': 'en',
+            'gl': 'US',
+        },
+        {},
+    ),
+]
+
+
 def resolve_innertube_stream(video_id):
-    """Direct Innertube resolution using ANDROID_VR client.
-    Returns direct unthrottled googlevideo audio stream URL in ~100ms.
+    """Direct Innertube resolution (~0.5-1s), avoiding a much slower yt-dlp call.
+
+    Returns (url, source, mime) or (None, None, None) if every client failed.
     """
-    try:
-        url = 'https://www.youtube.com/youtubei/v1/player'
-        payload = {
-            'context': {
-                'client': {
-                    'clientName': 'ANDROID_VR',
-                    'clientVersion': '1.54.19',
-                    'hl': 'en',
-                    'gl': 'US'
-                }
-            },
-            'videoId': video_id
-        }
-        resp = http_requests.post(url, json=payload, timeout=4)
-        if resp.status_code == 200:
+    for label, client, headers in INNERTUBE_CLIENTS:
+        try:
+            payload = {'context': {'client': client}, 'videoId': video_id}
+            resp = http_requests.post(
+                INNERTUBE_URL, json=payload, headers=headers, timeout=5)
+            if resp.status_code != 200:
+                dlog('  innertube:%s HTTP %s' % (label, resp.status_code))
+                continue
+
             data = resp.json()
+            status = data.get('playabilityStatus', {}).get('status')
             streaming = data.get('streamingData', {})
             formats = streaming.get('adaptiveFormats', []) + streaming.get('formats', [])
             audio_streams = [
                 f for f in formats
-                if (f.get('mimeType', '').startswith('audio/') or f.get('audioQuality')) and f.get('url')
+                if (f.get('mimeType', '').startswith('audio/') or f.get('audioQuality'))
+                and f.get('url')
             ]
-            if audio_streams:
-                def _sort_key(f):
-                    is_m4a = 'm4a' in f.get('mimeType', '') or 'mp4' in f.get('mimeType', '')
-                    bitrate = int(f.get('bitrate', 0) or 0)
-                    return (1 if is_m4a else 0, bitrate)
-                audio_streams.sort(key=_sort_key, reverse=True)
-                chosen = audio_streams[0]
-                return chosen.get('url'), 'innertube:android_vr', chosen.get('mimeType', 'audio/mp4')
-    except Exception as e:
-        dlog('  innertube:android_vr FAIL: %s' % str(e)[:120])
+            if not audio_streams:
+                # Log why, so a silently-dead fast path can't go unnoticed again.
+                dlog('  innertube:%s no-audio status=%s' % (label, status))
+                continue
+
+            def _sort_key(f):
+                is_m4a = 'm4a' in f.get('mimeType', '') or 'mp4' in f.get('mimeType', '')
+                bitrate = int(f.get('bitrate', 0) or 0)
+                return (1 if is_m4a else 0, bitrate)
+
+            audio_streams.sort(key=_sort_key, reverse=True)
+            chosen = audio_streams[0]
+            return (chosen.get('url'), 'innertube:%s' % label,
+                    chosen.get('mimeType', 'audio/mp4'))
+        except Exception as e:
+            dlog('  innertube:%s FAIL: %s' % (label, str(e)[:120]))
     return None, None, None
 
 
@@ -337,14 +379,16 @@ def resolve_stream_url(video_id):
         return cached_url, source, chosen_fmt, True
 
     dlog('STREAM resolve req id=%s' % video_id)
-    t0 = _time.time()
-    
-    # 1. Fast direct Innertube stream resolution (~100ms)
-    stream_url, source, chosen_fmt = resolve_innertube_stream(video_id)
-    if stream_url:
-        dlog('  innertube:android_vr OK fmt=%s %.2fs' % (chosen_fmt, _time.time() - t0))
-        set_cached_stream_url(video_id, stream_url, source, chosen_fmt)
-        return stream_url, source, chosen_fmt, False
+    stream_url = source = chosen_fmt = None
+
+    # NOTE: direct Innertube resolution is deliberately NOT used here.
+    # It looks attractive (~0.5s vs ~1.9s) but the URLs it returns still carry
+    # an unsolved 'n' throttling parameter: they answer 403 to an ordinary GET
+    # and only serve bytes for explicit Range requests, so <audio> and any
+    # plain-GET client fail with MEDIA_ERR_SRC_NOT_SUPPORTED. yt-dlp descrambles
+    # 'n', which is what makes its URLs actually playable. Speed instead comes
+    # from the cache above plus /api/prefetch warming tracks before they're
+    # tapped. See resolve_innertube_stream() for the probe helper.
 
     ytdlp_configs = [
         (['android_music'], '140/bestaudio[ext=m4a]/bestaudio'),
@@ -480,14 +524,16 @@ def api_prefetch():
     if not clean_ids:
         return jsonify({'ok': False, 'message': 'No valid ids'}), 400
 
-    def _bg_prefetch():
-        for vid in clean_ids:
-            try:
-                resolve_stream_url(vid)
-            except Exception as e:
-                dlog('prefetch error id=%s: %s' % (vid, e))
+    def _bg_prefetch(vid):
+        try:
+            resolve_stream_url(vid)
+        except Exception as e:
+            dlog('prefetch error id=%s: %s' % (vid, e))
 
-    _threading.Thread(target=_bg_prefetch, daemon=True).start()
+    # Resolve in parallel: sequential warming would take ~1s per track, which
+    # defeats the point when the user taps the 3rd item straight away.
+    for vid in clean_ids:
+        _threading.Thread(target=_bg_prefetch, args=(vid,), daemon=True).start()
     return jsonify({'ok': True, 'prefetching': clean_ids})
 
 
@@ -1507,22 +1553,50 @@ def api_download_track():
         return jsonify({'ok': False, 'error': 'Could not resolve audio stream URL'}), 502
 
     # 2. Download audio stream to file
+    download_success = False
+    written_bytes = 0
+    temp_path = filepath + '.tmp'
+
     try:
-        req = http_requests.get(stream_url, headers={'User-Agent': 'Mozilla/5.0'}, stream=True, timeout=30)
-        req.raise_for_status()
-        temp_path = filepath + '.tmp'
-        written_bytes = 0
-        with open(temp_path, 'wb') as f:
-            for chunk in req.iter_content(chunk_size=65536):
-                if chunk:
+        req = http_requests.get(stream_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}, stream=True, timeout=40, allow_redirects=True)
+        if req.status_code == 200:
+            with open(temp_path, 'wb') as f:
+                for chunk in req.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+                        written_bytes += len(chunk)
+            if written_bytes > 5000:
+                download_success = True
+    except Exception as e:
+        dlog(f"DOWNLOAD requests stream error: {e}")
+
+    if not download_success:
+        try:
+            import urllib.request
+            req_obj = urllib.request.Request(stream_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_obj, timeout=40) as resp, open(temp_path, 'wb') as f:
+                written_bytes = 0
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
                     f.write(chunk)
                     written_bytes += len(chunk)
+            if written_bytes > 5000:
+                download_success = True
+        except Exception as e:
+            dlog(f"DOWNLOAD urllib stream error: {e}")
 
-        if written_bytes < 5000:
-            if os.path.exists(temp_path):
+    if not download_success or written_bytes < 5000:
+        if os.path.exists(temp_path):
+            try:
                 os.remove(temp_path)
-            return jsonify({'ok': False, 'error': 'Downloaded audio file is invalid'}), 502
+            except Exception:
+                pass
+        dlog(f"DOWNLOAD FAIL id={clean_id} written_bytes={written_bytes}")
+        return jsonify({'ok': False, 'error': 'Downloaded audio file is invalid'}), 502
 
+    try:
         if os.path.exists(filepath):
             os.remove(filepath)
         os.rename(temp_path, filepath)

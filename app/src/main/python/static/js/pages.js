@@ -64,7 +64,7 @@ const GENRES = [
 ];
 
 function renderTrackList(tracks, container, options = {}) {
-    const { showIndex = false, showRemove = false, onRemove = null, singleTrackQueue = false } = options;
+    const { showIndex = false, showRemove = false, onRemove = null, singleTrackQueue = false, hideDownload = false } = options;
     if (!tracks || tracks.length === 0) {
         container.innerHTML = '<div class="empty-state"><h3>No tracks found</h3></div>';
         return;
@@ -101,9 +101,9 @@ function renderTrackList(tracks, container, options = {}) {
                 </div>
                 <div class="col-artist">${escapeHtml(artistName)}</div>
                 <div class="col-actions">
-                    <button class="btn-icon download-btn ${isDownloaded ? 'active' : ''}" title="${isDownloaded ? 'Delete Download' : 'Download for Offline Travels'}" onclick="event.stopPropagation(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))}, this)">
+                    ${!hideDownload ? `<button class="btn-icon download-btn ${isDownloaded ? 'active' : ''}" title="${isDownloaded ? 'Delete Download' : 'Download for Offline Travels'}" onclick="event.stopPropagation(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))}, this)">
                         ${isDownloading ? '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>' : (isDownloaded ? ICONS.downloadCheck : ICONS.download)}
-                    </button>
+                    </button>` : ''}
                     <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
@@ -114,6 +114,23 @@ function renderTrackList(tracks, container, options = {}) {
     
     html += '</div></div>';
     container.innerHTML = html;
+
+    // Warm the stream-URL cache for the tracks most likely to be tapped first.
+    // Resolving a stream costs ~1s cold but ~4ms once cached, so pre-resolving
+    // the top of the list makes tapping through songs feel instant.
+    prefetchStreams(tracks.slice(0, 5).map(t => t.id));
+}
+
+// Ask the backend to pre-resolve stream URLs. Ids already requested this
+// session are skipped so scrolling/re-rendering can't spam the resolver.
+const _prefetchedIds = new Set();
+function prefetchStreams(ids) {
+    try {
+        const fresh = (ids || []).filter(id => id && !_prefetchedIds.has(id));
+        if (fresh.length === 0) return;
+        fresh.forEach(id => _prefetchedIds.add(id));
+        fetch(getApiUrl('/api/prefetch?ids=' + fresh.join(','))).catch(() => {});
+    } catch (e) {}
 }
 
 function escapeHtml(str) {
@@ -177,7 +194,12 @@ function renderHomePage(container) {
     const geminiKey = (localStorage.getItem('geminiApiKey') || '').trim();
 
     html += `<section style="margin-top:2rem" id="recs-section">
-        <h2 class="section-title">Recommended For You</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+            <h2 class="section-title" style="margin:0">Recommended For You</h2>
+            <button class="btn-icon" title="Refresh Recommendations" onclick="refreshHomeRecommendations()" style="width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.06);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text-secondary)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 11-.57-8.38l5.67-5.67"/></svg>
+            </button>
+        </div>
         <div id="recs-container"><div class="page-loader"><div class="spinner"></div><span>Finding songs you'll love...</span></div></div>
     </section>`;
 
@@ -207,24 +229,8 @@ function renderHomePage(container) {
     html += '</div>';
     container.innerHTML = html;
     
-    // Fetch default recommendations async
-    const params = new URLSearchParams();
-    if (seedIds.length) params.set('seedIds', seedIds.join(','));
-    if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
-    fetchWithRetry(getApiUrl(`/api/home-recommendations?${params.toString()}`))
-        .then(r => r.json())
-        .then(tracks => {
-            const c = document.getElementById('recs-container');
-            if (!c) return;
-            if (tracks && tracks.length > 0) {
-                renderTrackList(tracks, c, { singleTrackQueue: true });
-            } else {
-                fetchFallbackHomeRecommendations(c);
-            }
-        }).catch(() => {
-            const c = document.getElementById('recs-container');
-            if (c) fetchFallbackHomeRecommendations(c);
-        });
+    // Load recommendations (cached or fresh)
+    loadHomeRecommendations();
 
     // Fetch AI recs async — only when the user has configured a Gemini key
     if (hasSeeds && geminiKey && uniqueArtists.length > 0) {
@@ -245,13 +251,59 @@ function renderHomePage(container) {
     }
 }
 
+window._cachedHomeRecs = null;
+
+function refreshHomeRecommendations() {
+    window._cachedHomeRecs = null;
+    const c = document.getElementById('recs-container');
+    if (c) {
+        c.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Refreshing recommendations...</span></div>';
+    }
+    loadHomeRecommendations();
+}
+
+function loadHomeRecommendations() {
+    const c = document.getElementById('recs-container');
+    if (!c) return;
+
+    if (window._cachedHomeRecs && window._cachedHomeRecs.length > 0) {
+        renderTrackList(window._cachedHomeRecs, c, { singleTrackQueue: true, hideDownload: true });
+        return;
+    }
+
+    const seedTracks = [...Store.recentlyPlayed, ...Store.likedSongs];
+    const seedIds = [...new Set(seedTracks.map(t => t.id).filter(Boolean))].slice(0, 5);
+    const uniqueArtists = [...new Set(seedTracks.map(t => t.channel?.name).filter(Boolean))].slice(0, 5);
+
+    const params = new URLSearchParams();
+    if (seedIds.length) params.set('seedIds', seedIds.join(','));
+    if (uniqueArtists.length) params.set('artistNames', uniqueArtists.join(','));
+
+    fetchWithRetry(getApiUrl(`/api/home-recommendations?${params.toString()}`))
+        .then(r => r.json())
+        .then(tracks => {
+            const container = document.getElementById('recs-container');
+            if (!container) return;
+            if (tracks && tracks.length > 0) {
+                window._cachedHomeRecs = tracks;
+                renderTrackList(tracks, container, { singleTrackQueue: true, hideDownload: true });
+            } else {
+                fetchFallbackHomeRecommendations(container);
+            }
+        }).catch(() => {
+            const container = document.getElementById('recs-container');
+            if (container) fetchFallbackHomeRecommendations(container);
+        });
+}
+
 function fetchFallbackHomeRecommendations(container) {
     if (!container) return;
     fetchWithRetry(getApiUrl('/api/search?q=top+hits&type=songs'))
         .then(r => r.json())
         .then(tracks => {
             if (tracks && tracks.length > 0) {
-                renderTrackList(tracks.slice(0, 15), container, { singleTrackQueue: true });
+                window._cachedHomeRecs = tracks.slice(0, 15);
+                renderTrackList(tracks.slice(0, 15), container, { singleTrackQueue: true, hideDownload: true });
             } else {
                 const s = document.getElementById('recs-section');
                 if (s) s.remove();
@@ -361,7 +413,7 @@ function renderSearchPage(container, path) {
             grid += '</div>';
             resultsEl.innerHTML = grid;
         } else {
-            renderTrackList(results, resultsEl, { singleTrackQueue: true });
+            renderTrackList(results, resultsEl, { singleTrackQueue: true, hideDownload: true });
         }
     };
 

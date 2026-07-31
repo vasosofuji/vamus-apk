@@ -168,6 +168,7 @@ const Store = {
             this.likedSongs = JSON.parse(localStorage.getItem('likedSongs') || '[]');
             this.playlists = JSON.parse(localStorage.getItem('playlists') || '[]');
             this.recentlyPlayed = JSON.parse(localStorage.getItem('recentlyPlayed') || '[]');
+            this.downloadedTracks = JSON.parse(localStorage.getItem('downloadedTracks') || '[]');
             // Playback settings
             const cf = localStorage.getItem('crossfadeEnabled');
             if (cf !== null) this.crossfadeEnabled = cf === 'true';
@@ -242,6 +243,7 @@ const Store = {
                 playlists: this.playlists,
                 likedSongs: this.likedSongs,
                 recentlyPlayed: this.recentlyPlayed,
+                downloadedTracks: this.downloadedTracks,
                 theme: this.theme,
                 crossfadeEnabled: this.crossfadeEnabled,
                 crossfadeDuration: this.crossfadeDuration,
@@ -260,6 +262,7 @@ const Store = {
         try { localStorage.setItem('likedSongs', JSON.stringify(this.likedSongs)); } catch(e) { console.error('Error saving likedSongs', e); }
         try { localStorage.setItem('playlists', JSON.stringify(this.playlists)); } catch(e) { console.error('Error saving playlists', e); }
         try { localStorage.setItem('recentlyPlayed', JSON.stringify(this.recentlyPlayed)); } catch(e) { console.error('Error saving recentlyPlayed', e); }
+        try { localStorage.setItem('downloadedTracks', JSON.stringify(this.downloadedTracks)); } catch(e) { console.error('Error saving downloadedTracks', e); }
         try { localStorage.setItem('crossfadeEnabled', String(this.crossfadeEnabled)); } catch(e) {}
         try { localStorage.setItem('crossfadeDuration', String(this.crossfadeDuration)); } catch(e) {}
         try { localStorage.setItem('autoplayEnabled', String(this.autoplayEnabled)); } catch(e) {}
@@ -374,6 +377,7 @@ const Store = {
                 } else {
                     this.downloadedTracks = [data.track, ...this.downloadedTracks];
                 }
+                this.save();
                 this.emit('downloadsChanged');
                 return true;
             }
@@ -393,6 +397,7 @@ const Store = {
                 body: JSON.stringify({ id: trackId })
             });
             this.downloadedTracks = this.downloadedTracks.filter(t => t.id !== trackId);
+            this.save();
             this.emit('downloadsChanged');
             return true;
         } catch(e) {

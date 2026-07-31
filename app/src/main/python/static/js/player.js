@@ -655,12 +655,22 @@ const Player = {
             );
         }
 
-        // Trigger background pre-fetching for upcoming queue tracks
+        // Warm the tracks that actually come next. Taking the head of the queue
+        // would re-warm already-played tracks whenever the user is partway
+        // through a list, leaving the real next track cold.
         try {
-            const upcomingIds = (Store.queue || [])
-                .filter(t => t.id && (!Store.currentTrack || t.id !== Store.currentTrack.id))
-                .slice(0, 3)
-                .map(t => t.id);
+            const queue = Store.queue || [];
+            const curId = Store.currentTrack && Store.currentTrack.id;
+            const idx = curId ? queue.findIndex(t => t.id === curId) : -1;
+            const after = idx >= 0 ? queue.slice(idx + 1) : queue;
+            let upcoming = after.filter(t => t.id && t.id !== curId).slice(0, 3);
+            // Near the end of a looping queue the next tracks wrap to the front.
+            if (upcoming.length < 3 && Store.repeat === 'all') {
+                upcoming = upcoming.concat(
+                    queue.filter(t => t.id && t.id !== curId && !upcoming.includes(t))
+                         .slice(0, 3 - upcoming.length));
+            }
+            const upcomingIds = upcoming.map(t => t.id);
             if (upcomingIds.length > 0) {
                 fetch(getApiUrl('/api/prefetch?ids=' + upcomingIds.join(','))).catch(() => {});
             }
