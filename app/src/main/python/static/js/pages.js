@@ -622,14 +622,19 @@ function renderArtistPage(container, id) {
                 return;
             }
             
-            const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || '';
+            const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || artist.thumbnail || artist.image || '';
+            const bgThumb = artist.thumbnails?.[0]?.url || thumb;
             let html = '<div class="animate-fade-up">';
             
             // Hero
-            html += `<div class="hero-section artist-hero" style="background-image:url('${thumb}')">
-                <div class="hero-overlay"></div>
-                <div class="hero-info">
-                    <h1>${escapeHtml(artist.name || '')}</h1>
+            html += `<div class="hero-section artist-hero" style="background-image:url('${bgThumb}');position:relative;overflow:hidden;padding:2.5rem 2rem;border-radius:16px;margin-bottom:1.5rem">
+                <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.85));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"></div>
+                <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem">
+                    <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}';" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
+                    <div>
+                        <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Artist</div>
+                        <h1 style="margin:0.25rem 0;font-size:2.4rem;font-weight:800">${escapeHtml(artist.name || '')}</h1>
+                    </div>
                 </div>
             </div>`;
             
