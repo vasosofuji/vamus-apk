@@ -42,13 +42,23 @@ const Router = {
             document.body.classList.remove('page-settings');
         }
 
+        const isMobilePlayerOpen = document.body.classList.contains('mobile-player-open');
+
         const bottomNav = document.getElementById('bottom-nav');
         if (bottomNav) {
-            const isMobilePlayerOpen = document.body.classList.contains('mobile-player-open');
             if (isSettings || isMobilePlayerOpen) {
                 bottomNav.style.display = 'none';
             } else {
                 bottomNav.style.display = '';
+            }
+        }
+
+        const playerBar = document.getElementById('player-bar');
+        if (playerBar) {
+            if (isSettings || isMobilePlayerOpen || !Store.currentTrack) {
+                playerBar.style.display = 'none';
+            } else {
+                playerBar.style.display = '';
             }
         }
         

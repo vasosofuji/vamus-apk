@@ -2319,4 +2319,12 @@ body.glass-mode .settings-menu-card:hover {
   display: flex;
 }
 
+/* Settings Page - Strictly hide bottom player bar and bottom navigation bar so they never block UI elements */
+body.page-settings #player-bar,
+body.page-settings #bottom-nav,
+body.mobile-player-open #player-bar,
+body.mobile-player-open #bottom-nav {
+  display: none !important;
+}
+
 

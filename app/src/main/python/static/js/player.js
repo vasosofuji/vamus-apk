@@ -816,7 +816,17 @@ const Player = {
     
     showPlayerBar() {
         const bar = document.getElementById('player-bar');
-        if (bar) bar.style.display = 'flex';
+        if (!bar || !Store.currentTrack) return;
+
+        const isSettings = (typeof Router !== 'undefined' && Router.currentRoute && (Router.currentRoute === '/settings' || Router.currentRoute.startsWith('/settings'))) || document.body.classList.contains('page-settings');
+        const isMobilePlayerOpen = document.body.classList.contains('mobile-player-open');
+
+        if (isSettings || isMobilePlayerOpen) {
+            bar.style.display = 'none';
+            return;
+        }
+
+        bar.style.display = 'flex';
         const app = document.getElementById('app');
         if (app) app.classList.add('has-player');
     },
