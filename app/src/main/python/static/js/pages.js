@@ -16,6 +16,7 @@ async function handleTrackDownloadClick(track, btnEl) {
         if (confirm(`Remove offline download for "${track.title || 'this track'}"?`)) {
             await Store.deleteDownload(track.id);
             showToast('Download removed', 'info');
+            if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
             if (Router.currentRoute === '/downloads') Router.render('/downloads');
             else if (Router.currentRoute) Router.render(Router.currentRoute);
         }
@@ -27,14 +28,24 @@ async function handleTrackDownloadClick(track, btnEl) {
         btnEl.classList.add('downloading');
         btnEl.innerHTML = '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
     }
-    showToast(`Downloading "${track.title || 'track'}" for offline travels...`, 'info');
-    const success = await Store.downloadTrack(track);
-    if (success) {
-        showToast(`Downloaded "${track.title || 'track'}"! Saved for offline travels.`, 'success');
-    } else {
+    showToast(`Downloading "${track.title || 'track'}"...`, 'info');
+    try {
+        const success = await Store.downloadTrack(track);
+        if (success) {
+            showToast(`Downloaded "${track.title || 'track'}"!`, 'success');
+        } else {
+            showToast(`Download failed for "${track.title || 'track'}"`, 'error');
+        }
+    } catch (err) {
+        console.error('Download click error:', err);
         showToast(`Download failed for "${track.title || 'track'}"`, 'error');
+    } finally {
+        if (btnEl) {
+            btnEl.classList.remove('downloading');
+        }
+        if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
+        if (Router.currentRoute) Router.render(Router.currentRoute);
     }
-    if (Router.currentRoute) Router.render(Router.currentRoute);
 }
 
 var FALLBACK_IMG = window.FALLBACK_IMG || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'><rect width='200' height='200' fill='%231e1b4b'/><circle cx='100' cy='100' r='75' fill='%230f172a'/><circle cx='100' cy='100' r='55' fill='none' stroke='%23334155' stroke-width='3'/><circle cx='100' cy='100' r='35' fill='none' stroke='%23475569' stroke-width='2'/><circle cx='100' cy='100' r='20' fill='%237c3aed'/><circle cx='100' cy='100' r='6' fill='%23ffffff'/></svg>";
@@ -492,15 +503,14 @@ function renderDownloadedPage(container) {
             ${ICONS.download}
         </div>
         <div class="hero-info">
-            <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Offline Music</div>
             <h1 style="margin:0.25rem 0;font-size:2.2rem;font-weight:800">Downloaded Songs</h1>
-            <p class="hero-meta" style="margin:0;opacity:0.9">${Store.downloadedTracks.length} tracks saved for offline travels</p>
+            <p class="hero-meta" style="margin:0;opacity:0.9">${Store.downloadedTracks.length} songs</p>
         </div>
     </div>`;
     
     if (Store.downloadedTracks.length > 0) {
         html += '<div class="hero-actions" style="display:flex;gap:1rem;margin-bottom:1.5rem">';
-        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.downloadedTracks[0], Store.downloadedTracks)">▶ Play Offline All</button>`;
+        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.downloadedTracks[0], Store.downloadedTracks)">▶ Play All</button>`;
         html += `<button class="action-btn secondary" onclick="Player.playTrack(Store.downloadedTracks[Math.floor(Math.random()*Store.downloadedTracks.length)], Store.downloadedTracks)">⤮ Shuffle</button>`;
         html += '</div>';
         html += '<div id="downloaded-tracks"></div>';
@@ -508,7 +518,7 @@ function renderDownloadedPage(container) {
         html += `<div class="empty-state">
             ${ICONS.download}
             <h3>No downloaded songs yet</h3>
-            <p>Tap the download button on any track to save it for offline travels</p>
+            <p>Downloaded songs will appear here</p>
         </div>`;
     }
     

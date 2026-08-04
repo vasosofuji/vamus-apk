@@ -347,9 +347,9 @@ const Store = {
         return this.downloadingIds.has(trackId);
     },
     async downloadTrack(track) {
-        if (!track || !track.id) return;
-        if (this.isDownloaded(track.id)) return;
-        if (this.isDownloading(track.id)) return;
+        if (!track || !track.id) return false;
+        if (this.isDownloaded(track.id)) return true;
+        if (this.isDownloading(track.id)) return false;
 
         this.downloadingIds.add(track.id);
         this.emit('downloadsChanged');
@@ -359,17 +359,22 @@ const Store = {
                 id: track.id,
                 title: track.title || 'Unknown Track',
                 artist: (track.channel && track.channel.name) || track.artist || 'Unknown Artist',
-                thumbnail: track.thumbnail || '',
+                thumbnail: typeof getTrackThumbnail === 'function' ? getTrackThumbnail(track) : (track.thumbnail || ''),
                 durationInSec: track.durationInSec || 0
             };
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
+
             const resp = await fetch(getApiUrl('/api/download'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: JSON.stringify(payload),
+                signal: controller.signal
             });
-            const data = await resp.json();
-            this.downloadingIds.delete(track.id);
+            clearTimeout(timeoutId);
 
+            const data = await resp.json();
             if (data.ok && data.track) {
                 const existingIdx = this.downloadedTracks.findIndex(t => t.id === track.id);
                 if (existingIdx >= 0) {
@@ -378,18 +383,19 @@ const Store = {
                     this.downloadedTracks = [data.track, ...this.downloadedTracks];
                 }
                 this.save();
-                this.emit('downloadsChanged');
                 return true;
             }
+            return false;
         } catch(e) {
             console.error('Download track error:', e);
+            return false;
+        } finally {
             this.downloadingIds.delete(track.id);
             this.emit('downloadsChanged');
         }
-        return false;
     },
     async deleteDownload(trackId) {
-        if (!trackId) return;
+        if (!trackId) return false;
         try {
             await fetch(getApiUrl('/api/downloads/delete'), {
                 method: 'POST',
@@ -402,8 +408,8 @@ const Store = {
             return true;
         } catch(e) {
             console.error('Delete download error:', e);
+            return false;
         }
-        return false;
     },
 
     // Recently played
