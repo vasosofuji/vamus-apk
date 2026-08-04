@@ -61,6 +61,126 @@ function getTrackThumbnail(t) {
     return url;
 }
 
+function attachTrackRowLongPress(container) {
+    if (!container) return;
+    const rows = container.querySelectorAll('.track-row');
+    rows.forEach(row => {
+        let pressTimer = null;
+        let startX = 0;
+        let startY = 0;
+
+        const trackData = row.getAttribute('data-track');
+        if (!trackData) return;
+
+        function startPress(e) {
+            if (e.target.closest('button')) return;
+            const touch = e.touches ? e.touches[0] : e;
+            startX = touch.clientX;
+            startY = touch.clientY;
+            if (pressTimer) clearTimeout(pressTimer);
+            pressTimer = setTimeout(() => {
+                try {
+                    const track = JSON.parse(trackData);
+                    showTrackContextMenu(track);
+                } catch(err) {}
+            }, 450);
+        }
+
+        function cancelPress(e) {
+            if (e.touches && e.touches.length > 0) {
+                const touch = e.touches[0];
+                const dx = Math.abs(touch.clientX - startX);
+                const dy = Math.abs(touch.clientY - startY);
+                if (dx > 10 || dy > 10) {
+                    if (pressTimer) clearTimeout(pressTimer);
+                }
+            } else {
+                if (pressTimer) clearTimeout(pressTimer);
+            }
+        }
+
+        row.addEventListener('touchstart', startPress, { passive: true });
+        row.addEventListener('touchmove', cancelPress, { passive: true });
+        row.addEventListener('touchend', () => { if (pressTimer) clearTimeout(pressTimer); }, { passive: true });
+        row.addEventListener('touchcancel', () => { if (pressTimer) clearTimeout(pressTimer); }, { passive: true });
+        row.addEventListener('mousedown', startPress);
+        row.addEventListener('mousemove', cancelPress);
+        row.addEventListener('mouseup', () => { if (pressTimer) clearTimeout(pressTimer); });
+        row.addEventListener('mouseleave', () => { if (pressTimer) clearTimeout(pressTimer); });
+        row.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (pressTimer) clearTimeout(pressTimer);
+            try {
+                const track = JSON.parse(trackData);
+                showTrackContextMenu(track);
+            } catch(err) {}
+        });
+    });
+}
+
+function showTrackContextMenu(track) {
+    if (!track || !track.id) return;
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+
+    const isLiked = Store.isLiked(track.id);
+    const isDownloaded = Store.isDownloaded(track.id);
+    const isDownloading = Store.isDownloading(track.id);
+    const artistName = track.channel?.name || track.artist || 'Unknown Artist';
+    const thumb = getTrackThumbnail(track);
+
+    let downloadLabel = 'Download for Offline';
+    let downloadIcon = ICONS.download;
+    if (isDownloading) {
+        downloadLabel = 'Downloading...';
+        downloadIcon = '<span class="spinner-small" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
+    } else if (isDownloaded) {
+        downloadLabel = 'Remove Offline Download';
+        downloadIcon = ICONS.downloadCheck;
+    }
+
+    overlay.style.zIndex = '3000';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = `<div class="modal-box track-context-menu" onclick="event.stopPropagation()" style="max-width:340px;width:92%;padding:1.25rem 1.25rem 1rem">
+        <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border-color);margin-bottom:12px">
+            <img src="${thumb}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0">
+            <div style="display:flex;flex-direction:column;overflow:hidden">
+                <span style="font-weight:700;font-size:0.95rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(track.title || '')}</span>
+                <span style="font-size:0.8rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(artistName)}</span>
+            </div>
+        </div>
+        <div class="context-menu-actions" style="display:flex;flex-direction:column;gap:6px">
+            <button class="context-item-btn" onclick="closeModal(); Player.playTrack(${escapeAttr(JSON.stringify(track))})">
+                <span class="context-icon">${ICONS.play}</span>
+                <span>Play Track</span>
+            </button>
+            <button class="context-item-btn" onclick="closeModal(); Store.addToQueue(${escapeAttr(JSON.stringify(track))}); showToast('Added to Queue', 'info')">
+                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
+                <span>Add to Queue</span>
+            </button>
+            <button class="context-item-btn" onclick="closeModal(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI(); if (Router.currentRoute === '/liked') Router.render('/liked');">
+                <span class="context-icon">${isLiked ? ICONS.heartFilled : ICONS.heart}</span>
+                <span>${isLiked ? 'Remove from Liked' : 'Like Song'}</span>
+            </button>
+            <button class="context-item-btn ${isDownloaded ? 'active' : ''}" onclick="closeModal(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))});">
+                <span class="context-icon">${downloadIcon}</span>
+                <span>${downloadLabel}</span>
+            </button>
+            <button class="context-item-btn" onclick="closeModal(); showAddToPlaylistModal(${escapeAttr(JSON.stringify(track))})">
+                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg></span>
+                <span>Add to Playlist</span>
+            </button>
+            ${track.channel?.id || track.artistId ? `<button class="context-item-btn" onclick="closeModal(); navigate('/artist/${encodeURIComponent(track.channel?.id || track.artistId)}')">
+                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                <span>Go to Artist</span>
+            </button>` : ''}
+        </div>
+        <div class="modal-actions" style="margin-top:12px;justify-content:flex-end">
+            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
+        </div>
+    </div>`;
+}
+
 const GENRES = [
     { id: 'techno', name: 'Techno', color: 'linear-gradient(135deg, #00F2FE, #4FACFE)' },
     { id: 'grunge', name: 'Grunge', color: 'linear-gradient(135deg, #434343, #000000)' },
@@ -112,9 +232,6 @@ function renderTrackList(tracks, container, options = {}) {
                 </div>
                 <div class="col-artist">${escapeHtml(artistName)}</div>
                 <div class="col-actions">
-                    ${!hideDownload ? `<button class="btn-icon download-btn ${isDownloaded ? 'active' : ''}" title="${isDownloaded ? 'Delete Download' : 'Download for Offline Travels'}" onclick="event.stopPropagation(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))}, this)">
-                        ${isDownloading ? '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>' : (isDownloaded ? ICONS.downloadCheck : ICONS.download)}
-                    </button>` : ''}
                     <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
@@ -126,9 +243,10 @@ function renderTrackList(tracks, container, options = {}) {
     html += '</div></div>';
     container.innerHTML = html;
 
-    // Warm the stream-URL cache for the tracks most likely to be tapped first.
-    // Resolving a stream costs ~1s cold but ~4ms once cached, so pre-resolving
-    // the top of the list makes tapping through songs feel instant.
+    // Attach hold-down / long-press context menu to track rows
+    attachTrackRowLongPress(container);
+
+    // Warm stream-URL cache for tracks most likely to be played first
     prefetchStreams(tracks.slice(0, 5).map(t => t.id));
 }
 
