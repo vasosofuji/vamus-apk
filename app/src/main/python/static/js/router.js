@@ -111,5 +111,13 @@ const Router = {
 };
 
 function navigate(path) {
+    const target = '#' + path;
+    if (window.location.hash === target) {
+        // Assigning the same hash fires no hashchange, so the page would just
+        // sit there (tapping Home while on Home, or clearing the search box
+        // back to the same URL, appeared to do nothing).
+        Router.handleRoute();
+        return;
+    }
     window.location.hash = path;
 }

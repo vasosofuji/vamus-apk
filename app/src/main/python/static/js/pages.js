@@ -17,8 +17,12 @@ async function handleTrackDownloadClick(track, btnEl) {
             await Store.deleteDownload(track.id);
             showToast('Download removed', 'info');
             if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
-            if (Router.currentRoute === '/downloads') Router.render('/downloads');
-            else if (Router.currentRoute) Router.render(Router.currentRoute);
+            // Only the offline pages actually show download state, and
+            // Router.render() jumps the list back to the top — don't do it to
+            // someone who is halfway down a search page.
+            if (Router.currentRoute === '/downloads' || Router.currentRoute === '/library') {
+                Router.render(Router.currentRoute);
+            }
         }
         return;
     }
@@ -28,11 +32,11 @@ async function handleTrackDownloadClick(track, btnEl) {
         btnEl.classList.add('downloading');
         btnEl.innerHTML = '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
     }
-    showToast(`Downloading "${track.title || 'track'}"...`, 'info');
+    showToast(`Downloading "${track.title || 'track'}"…`, 'info');
     try {
         const success = await Store.downloadTrack(track);
         if (success) {
-            showToast(`Downloaded "${track.title || 'track'}"!`, 'success');
+            showToast(`Downloaded "${track.title || 'track'}"`, 'success');
         } else {
             showToast(`Download failed for "${track.title || 'track'}"`, 'error');
         }
@@ -44,7 +48,9 @@ async function handleTrackDownloadClick(track, btnEl) {
             btnEl.classList.remove('downloading');
         }
         if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
-        if (Router.currentRoute) Router.render(Router.currentRoute);
+        if (Router.currentRoute === '/downloads' || Router.currentRoute === '/library') {
+            Router.render(Router.currentRoute);
+        }
     }
 }
 
@@ -61,124 +67,25 @@ function getTrackThumbnail(t) {
     return url;
 }
 
+// A second, per-row long-press handler used to live here. It fired at the same
+// 450ms as the global one in setup3DTouchMenu(), so a single hold opened two
+// stacked menus — and because their buttons don't line up, tapping "Like" on
+// the visible card could hit "Download for Offline" on the one underneath.
+// setup3DTouchMenu() is now the single owner of the track context menu; the
+// right-click path routes into it too.
 function attachTrackRowLongPress(container) {
     if (!container) return;
-    const rows = container.querySelectorAll('.track-row');
-    rows.forEach(row => {
-        let pressTimer = null;
-        let startX = 0;
-        let startY = 0;
-
-        const trackData = row.getAttribute('data-track');
-        if (!trackData) return;
-
-        function startPress(e) {
-            if (e.target.closest('button')) return;
-            const touch = e.touches ? e.touches[0] : e;
-            startX = touch.clientX;
-            startY = touch.clientY;
-            if (pressTimer) clearTimeout(pressTimer);
-            pressTimer = setTimeout(() => {
-                try {
-                    const track = JSON.parse(trackData);
-                    showTrackContextMenu(track);
-                } catch(err) {}
-            }, 450);
-        }
-
-        function cancelPress(e) {
-            if (e.touches && e.touches.length > 0) {
-                const touch = e.touches[0];
-                const dx = Math.abs(touch.clientX - startX);
-                const dy = Math.abs(touch.clientY - startY);
-                if (dx > 10 || dy > 10) {
-                    if (pressTimer) clearTimeout(pressTimer);
-                }
-            } else {
-                if (pressTimer) clearTimeout(pressTimer);
-            }
-        }
-
-        row.addEventListener('touchstart', startPress, { passive: true });
-        row.addEventListener('touchmove', cancelPress, { passive: true });
-        row.addEventListener('touchend', () => { if (pressTimer) clearTimeout(pressTimer); }, { passive: true });
-        row.addEventListener('touchcancel', () => { if (pressTimer) clearTimeout(pressTimer); }, { passive: true });
-        row.addEventListener('mousedown', startPress);
-        row.addEventListener('mousemove', cancelPress);
-        row.addEventListener('mouseup', () => { if (pressTimer) clearTimeout(pressTimer); });
-        row.addEventListener('mouseleave', () => { if (pressTimer) clearTimeout(pressTimer); });
+    container.querySelectorAll('.track-row').forEach(row => {
         row.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            if (pressTimer) clearTimeout(pressTimer);
-            try {
-                const track = JSON.parse(trackData);
-                showTrackContextMenu(track);
-            } catch(err) {}
+            const track = getRowTrack(row);
+            if (track) showTrackContextMenu(track);
         });
     });
 }
 
 function showTrackContextMenu(track) {
-    if (!track || !track.id) return;
-    const overlay = document.getElementById('modal-overlay');
-    if (!overlay) return;
-
-    const isLiked = Store.isLiked(track.id);
-    const isDownloaded = Store.isDownloaded(track.id);
-    const isDownloading = Store.isDownloading(track.id);
-    const artistName = track.channel?.name || track.artist || 'Unknown Artist';
-    const thumb = getTrackThumbnail(track);
-
-    let downloadLabel = 'Download for Offline';
-    let downloadIcon = ICONS.download;
-    if (isDownloading) {
-        downloadLabel = 'Downloading...';
-        downloadIcon = '<span class="spinner-small" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
-    } else if (isDownloaded) {
-        downloadLabel = 'Remove Offline Download';
-        downloadIcon = ICONS.downloadCheck;
-    }
-
-    overlay.style.zIndex = '3000';
-    overlay.style.display = 'flex';
-    overlay.innerHTML = `<div class="modal-box track-context-menu" onclick="event.stopPropagation()" style="max-width:340px;width:92%;padding:1.25rem 1.25rem 1rem">
-        <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--border-color);margin-bottom:12px">
-            <img src="${thumb}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0">
-            <div style="display:flex;flex-direction:column;overflow:hidden">
-                <span style="font-weight:700;font-size:0.95rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(track.title || '')}</span>
-                <span style="font-size:0.8rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(artistName)}</span>
-            </div>
-        </div>
-        <div class="context-menu-actions" style="display:flex;flex-direction:column;gap:6px">
-            <button class="context-item-btn" onclick="closeModal(); Player.playTrack(${escapeAttr(JSON.stringify(track))})">
-                <span class="context-icon">${ICONS.play}</span>
-                <span>Play Track</span>
-            </button>
-            <button class="context-item-btn" onclick="closeModal(); Store.addToQueue(${escapeAttr(JSON.stringify(track))}); showToast('Added to Queue', 'info')">
-                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
-                <span>Add to Queue</span>
-            </button>
-            <button class="context-item-btn" onclick="closeModal(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI(); if (Router.currentRoute === '/liked') Router.render('/liked');">
-                <span class="context-icon">${isLiked ? ICONS.heartFilled : ICONS.heart}</span>
-                <span>${isLiked ? 'Remove from Liked' : 'Like Song'}</span>
-            </button>
-            <button class="context-item-btn ${isDownloaded ? 'active' : ''}" onclick="closeModal(); handleTrackDownloadClick(${escapeAttr(JSON.stringify(track))});">
-                <span class="context-icon">${downloadIcon}</span>
-                <span>${downloadLabel}</span>
-            </button>
-            <button class="context-item-btn" onclick="closeModal(); showAddToPlaylistModal(${escapeAttr(JSON.stringify(track))})">
-                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg></span>
-                <span>Add to Playlist</span>
-            </button>
-            ${track.channel?.id || track.artistId ? `<button class="context-item-btn" onclick="closeModal(); navigate('/artist/${encodeURIComponent(track.channel?.id || track.artistId)}')">
-                <span class="context-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-                <span>Go to Artist</span>
-            </button>` : ''}
-        </div>
-        <div class="modal-actions" style="margin-top:12px;justify-content:flex-end">
-            <button class="modal-btn cancel" onclick="closeModal()">Close</button>
-        </div>
-    </div>`;
+    if (typeof show3DTouchMenu === 'function') show3DTouchMenu(track);
 }
 
 const GENRES = [
@@ -194,13 +101,64 @@ const GENRES = [
     { id: 'metal', name: 'Metal', color: 'linear-gradient(135deg, #4b6cb7, #182848)' },
 ];
 
+// Rendered track lists live here rather than being serialised into markup.
+// Every row used to carry a full JSON copy of its own track *and* of the entire
+// list in its onclick, so a 50-track page built ~50x more HTML than it needed
+// and scrolling/re-rendering visibly stuttered.
+const _trackLists = new Map();
+let _trackListSeq = 0;
+
+function _registerTrackList(tracks, singleTrackQueue) {
+    const id = 'tl' + (++_trackListSeq);
+    _trackLists.set(id, { tracks, singleTrackQueue });
+    // Keep only the few most recent lists so long sessions don't accumulate.
+    // A single page can register several (recents + recommendations + AI picks).
+    while (_trackLists.size > 12) {
+        _trackLists.delete(_trackLists.keys().next().value);
+    }
+    return id;
+}
+
+function getRowTrack(el) {
+    const row = el && el.closest ? el.closest('[data-list-id][data-list-idx]') : null;
+    if (!row) return null;
+    const entry = _trackLists.get(row.getAttribute('data-list-id'));
+    if (!entry) return null;
+    return entry.tracks[parseInt(row.getAttribute('data-list-idx'), 10)] || null;
+}
+
+function playTrackFromList(listId, index) {
+    const entry = _trackLists.get(listId);
+    if (!entry) return;
+    const track = entry.tracks[index];
+    if (!track) return;
+    // singleTrackQueue: rows from search / recommendation rows shouldn't drag
+    // the whole result page into the queue behind them.
+    Player.playTrack(track, entry.singleTrackQueue ? [track] : entry.tracks);
+}
+
+function toggleRowLike(btn, listId, index) {
+    const entry = _trackLists.get(listId);
+    const track = entry && entry.tracks[index];
+    if (!track) return;
+    Store.toggleLike(track);
+    const liked = Store.isLiked(track.id);
+    btn.classList.toggle('active', liked);
+    btn.innerHTML = liked ? ICONS.heartFilled : ICONS.heart;
+    if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
+    if (Router.currentRoute === '/liked') Router.render('/liked');
+}
+
 function renderTrackList(tracks, container, options = {}) {
-    const { showIndex = false, showRemove = false, onRemove = null, singleTrackQueue = false, hideDownload = false } = options;
+    const { showRemove = false, onRemove = null, singleTrackQueue = false } = options;
+    if (!container) return;
     if (!tracks || tracks.length === 0) {
         container.innerHTML = '<div class="empty-state"><h3>No tracks found</h3></div>';
         return;
     }
-    
+
+    const listId = _registerTrackList(tracks, singleTrackQueue);
+
     let html = '<div class="track-list">';
     html += `<div class="track-list-header">
         <span class="col-index">#</span>
@@ -210,21 +168,19 @@ function renderTrackList(tracks, container, options = {}) {
         <span class="col-time">${ICONS.clock}</span>
     </div>`;
     html += '<div class="track-list-body">';
-    
+
     tracks.forEach((track, i) => {
         const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
         const liked = Store.isLiked(track.id);
-        const isDownloaded = Store.isDownloaded(track.id);
-        const isDownloading = Store.isDownloading(track.id);
         const artistName = track.channel?.name || track.artist || '';
         const durSec = track.durationInSec || track.duration || 0;
         const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
-        html += `<div class="track-row ${isPlaying ? 'playing' : ''}" data-track="${escapeAttr(JSON.stringify(track))}" data-index="${i + 1}">
+        html += `<div class="track-row ${isPlaying ? 'playing' : ''}" data-list-id="${listId}" data-list-idx="${i}" data-track-id="${escapeAttr(String(track.id || ''))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
-            <div class="track-row-content" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, ${singleTrackQueue ? `[${escapeAttr(JSON.stringify(track))}]` : `${escapeAttr(JSON.stringify(tracks))}`})">
+            <div class="track-row-content" onclick="playTrackFromList('${listId}', ${i})">
                 <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
                 <div class="col-title">
-                    <img class="row-thumb" src="${getTrackThumbnail(track)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
+                    <img class="row-thumb" src="${escapeAttr(getTrackThumbnail(track))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                     <div class="row-text-group">
                         <span class="row-name">${escapeHtml(track.title || '')}</span>
                         ${artistName ? `<span class="row-artist-sub">${escapeHtml(artistName)}</span>` : ''}
@@ -232,14 +188,14 @@ function renderTrackList(tracks, container, options = {}) {
                 </div>
                 <div class="col-artist">${escapeHtml(artistName)}</div>
                 <div class="col-actions">
-                    <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); Store.toggleLike(${escapeAttr(JSON.stringify(track))}); this.classList.toggle('active'); this.innerHTML = Store.isLiked('${track.id}') ? ICONS.heartFilled : ICONS.heart; Player.updatePlayerUI(); if (Router.currentRoute === '/liked') { Router.render('/liked'); }">${liked ? ICONS.heartFilled : ICONS.heart}</button>
+                    <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); toggleRowLike(this, '${listId}', ${i})">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
                 <span class="col-time">${formattedDur}</span>
             </div>
         </div>`;
     });
-    
+
     html += '</div></div>';
     container.innerHTML = html;
 
@@ -247,7 +203,7 @@ function renderTrackList(tracks, container, options = {}) {
     attachTrackRowLongPress(container);
 
     // Warm stream-URL cache for tracks most likely to be played first
-    prefetchStreams(tracks.slice(0, 5).map(t => t.id));
+    prefetchStreams(tracks.slice(0, 5).filter(t => t && !Store.isDownloaded(t.id)).map(t => t.id));
 }
 
 // Ask the backend to pre-resolve stream URLs. Ids already requested this
@@ -304,10 +260,15 @@ function renderHomePage(container) {
     
     // Recently played
     if (Store.recentlyPlayed.length > 0) {
+        // Registered like a track list so long-press opens the same context
+        // menu here as it does on a normal row (and the card stops carrying two
+        // inline JSON copies of its track).
+        const recent = Store.recentlyPlayed.slice(0, 20);
+        const recentListId = _registerTrackList(recent, true);
         html += '<section style="margin-top:2rem"><h2 class="section-title">Recently Played</h2><div class="recent-grid">';
-        Store.recentlyPlayed.slice(0, 20).forEach(track => {
-            html += `<div class="recent-card" onclick="Player.playTrack(${escapeAttr(JSON.stringify(track))}, [${escapeAttr(JSON.stringify(track))}])">
-                <img src="${getTrackThumbnail(track)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
+        recent.forEach((track, i) => {
+            html += `<div class="recent-card" data-list-id="${recentListId}" data-list-idx="${i}" data-track-id="${escapeAttr(String(track.id || ''))}" onclick="playTrackFromList('${recentListId}', ${i})">
+                <img src="${escapeAttr(getTrackThumbnail(track))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                 <span class="recent-title">${escapeHtml(track.title || '')}</span>
                 <span class="recent-artist">${escapeHtml(track.channel?.name || '')}</span>
             </div>`;
@@ -758,7 +719,7 @@ function renderArtistPage(container, id) {
             html += `<div class="hero-section artist-hero" style="background-image:url('${bgThumb}');position:relative;overflow:hidden;padding:2.5rem 2rem;border-radius:16px;margin-bottom:1.5rem">
                 <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.85));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"></div>
                 <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem">
-                    <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}';" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
+                    <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
                     <div>
                         <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Artist</div>
                         <h1 style="margin:0.25rem 0;font-size:2.4rem;font-weight:800">${escapeHtml(artist.name || '')}</h1>
@@ -784,7 +745,7 @@ function renderArtistPage(container, id) {
                 html += '<section style="margin-top:2rem"><h2 class="section-title">Albums</h2><div class="card-grid">';
                 artist.topAlbums.forEach(a => {
                     html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
-                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                         <div class="album-card-name">${escapeHtml(a.name || '')}</div>
                         <div class="album-card-type">${a.year || 'Album'}</div>
                     </div>`;
@@ -797,7 +758,7 @@ function renderArtistPage(container, id) {
                 html += '<section style="margin-top:2rem"><h2 class="section-title">Singles & EPs</h2><div class="card-grid">';
                 artist.singles.forEach(a => {
                     html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
-                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                         <div class="album-card-name">${escapeHtml(a.name || '')}</div>
                         <div class="album-card-type">${a.year || 'Single'}</div>
                     </div>`;
@@ -834,7 +795,7 @@ function renderAlbumPage(container, id) {
             let html = '<div class="animate-fade-up">';
             
             html += `<div class="hero-section album-hero">
-                <img class="hero-art" src="${thumb || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'">
+                <img class="hero-art" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                 <div class="hero-info">
                     <div class="hero-type">${escapeHtml(album.type || 'Album')}</div>
                     <h1>${escapeHtml(album.name || '')}</h1>

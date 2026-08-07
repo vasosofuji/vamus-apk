@@ -1974,6 +1974,9 @@ body.mobile-player-open .player-bar {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+/* Status accent so a failed download doesn't look like a successful one. */
+.toast-success { border-color: rgba(29, 185, 84, 0.55); }
+.toast-error { border-color: rgba(239, 68, 68, 0.6); color: #fecaca; }
 @media (max-width: 768px) {
   .toast {
     bottom: 110px;

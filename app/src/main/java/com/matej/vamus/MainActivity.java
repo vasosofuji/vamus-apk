@@ -114,6 +114,14 @@ public class MainActivity extends BridgeActivity {
                                             String repeat, boolean shuffle) {
         nativeQueue.clear();
         fullNativeQueueBackup.clear();
+        // The JS queue never contains the track that is currently playing, so
+        // the loop below can't refresh currentNativeTrackInfo. Left stale, it
+        // pointed at a *previous* song and Repeat One replayed that instead of
+        // the current one.
+        if (currentTrackId == null || currentNativeTrackInfo == null
+                || !currentTrackId.equals(currentNativeTrackInfo.trackId)) {
+            currentNativeTrackInfo = null;
+        }
         nativeCurrentTrackId = currentTrackId;
         nativeRepeat = repeat != null ? repeat : "none";
         nativeShuffle = shuffle;
@@ -642,8 +650,24 @@ public class MainActivity extends BridgeActivity {
         return builder.build();
     }
 
+    // Identity of whatever the posted notification currently shows. JS pushes a
+    // playback-state update every 250ms; rebuilding + re-posting the
+    // notification on each one burned battery and made the media control
+    // visibly flicker. Position lives in the PlaybackState (which we still
+    // update every tick and which is cheap), not in the notification.
+    private String lastNotificationKey = null;
+
     private void showOrUpdateNotification(boolean isPlaying) {
         if (mediaSession == null) return;
+
+        String key = isPlaying + "|" + currentTitle + "|" + currentArtist
+                + "|" + (currentArtwork != null);
+        MediaPlaybackService svcCheck = MediaPlaybackService.getInstance();
+        boolean needsForegroundPromotion = isPlaying && (svcCheck == null || !svcCheck.isForegroundActive());
+        if (key.equals(lastNotificationKey) && !needsForegroundPromotion) {
+            return;
+        }
+        lastNotificationKey = key;
 
         Notification notification = buildNotification(isPlaying);
         this.lastNotification = notification;

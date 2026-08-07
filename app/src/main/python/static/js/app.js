@@ -30,12 +30,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     Store.on('trackChanged', () => {
-        // If mobile player overlay is open, re-render it to update current song name and art
+        // Patch the open overlay in place. Calling showMobilePlayer() here
+        // rebuilt its entire innerHTML on every song change, which flashed the
+        // artwork, restarted the entrance animation and re-bound the scrubber
+        // and swipe handlers each time.
         const overlay = document.getElementById('mobile-player-overlay');
         if (overlay && overlay.style.display === 'flex') {
-            showMobilePlayer();
+            updateMobilePlayerUI();
         }
-        
+
         // Simply update playing state class on track rows in DOM
         updateTrackRowsPlayingState();
     });
@@ -329,27 +332,40 @@ function setupMobilePlayerExpand() {
     });
 }
 
-function _getPrevTrack() {
-    if (!Store.currentTrack) return null;
-    let curTime = 0;
+// Current playback position, whichever engine is driving it.
+function _currentPlaybackTime() {
     if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
-        curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
-    } else if (Player.audio) {
-        curTime = Player.audio.currentTime;
+        return window.AndroidMediaSession.getCurrentPosition() / 1000;
     }
-    if (curTime > 3) return Store.currentTrack;
-    if (Store.history.length > 0) return Store.history[Store.history.length - 1];
-    const idx = Store.queue.findIndex(t => t.id === Store.currentTrack.id);
-    if (idx > 0) return Store.queue[idx - 1];
+    return Player.audio ? (Player.audio.currentTime || 0) : 0;
+}
+
+function _currentPlaybackDuration() {
+    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getDuration === 'function') {
+        return window.AndroidMediaSession.getDuration() / 1000;
+    }
+    const d = Player.audio ? Player.audio.duration : 0;
+    if (d && !isNaN(d)) return d;
+    return (Store.currentTrack && Store.currentTrack.durationInSec) || 0;
+}
+
+// `forCarousel` asks for the track a right-swipe would land on, ignoring the
+// "restart the current song if we're past 3s" rule that the Previous button uses.
+function _getPrevTrack(forCarousel = false) {
+    if (!Store.currentTrack) return null;
+    if (!forCarousel && _currentPlaybackTime() > 3) return Store.currentTrack;
+    if (Store.history && Store.history.length > 0) {
+        return Store.history[Store.history.length - 1];
+    }
     return null;
 }
 
 function _getNextTrack() {
     if (typeof Player !== 'undefined' && Player._resolveNextTrack) {
         const res = Player._resolveNextTrack();
-        return res ? res.track : null;
+        if (res && res.track) return res.track;
     }
-    return null;
+    return Store.nextAutoTrack || null;
 }
 
 function setupMobilePlayerSwipe() {
@@ -478,6 +494,14 @@ function setupMobilePlayerSwipe() {
     container.addEventListener('touchcancel', onPointerEnd, { passive: true });
 
     container.addEventListener('mousedown', onPointerDown);
+    // The container is rebuilt every time the player opens, but these live on
+    // window — without detaching the previous pair they piled up one set per
+    // open and every old handler kept running against a detached carousel.
+    if (window._mobileSwipeWindowHandlers) {
+        window.removeEventListener('mousemove', window._mobileSwipeWindowHandlers.move);
+        window.removeEventListener('mouseup', window._mobileSwipeWindowHandlers.end);
+    }
+    window._mobileSwipeWindowHandlers = { move: onPointerMove, end: onPointerEnd };
     window.addEventListener('mousemove', onPointerMove);
     window.addEventListener('mouseup', onPointerEnd);
 }
@@ -492,7 +516,9 @@ function updateMobilePlayerUI() {
         bgImg.style.backgroundImage = `url('${getTrackThumbnail(track)}')`;
     }
 
-    const prevTrack = _getPrevTrack();
+    // forCarousel: matches what showMobilePlayer() rendered, so the side art
+    // doesn't silently swap to the current song once playback passes 3s.
+    const prevTrack = _getPrevTrack(true);
     const nextTrack = _getNextTrack();
     const artUrl = getTrackThumbnail(track);
     const prevArtUrl = prevTrack ? getTrackThumbnail(prevTrack) : '';
@@ -524,165 +550,6 @@ function updateMobilePlayerUI() {
         slideNext.innerHTML = nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : '';
     }
 
-function _getPrevTrack(forCarousel = false) {
-    if (!Store.currentTrack) return null;
-    if (!forCarousel) {
-        let curTime = 0;
-        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
-            curTime = window.AndroidMediaSession.getCurrentPosition() / 1000;
-        } else if (Player.audio) {
-            curTime = Player.audio.currentTime;
-        }
-        if (curTime > 3) return Store.currentTrack;
-    }
-    if (Store.history && Store.history.length > 0) {
-        return Store.history[Store.history.length - 1];
-    }
-    const idx = (Store.queue || []).findIndex(t => t.id === Store.currentTrack.id);
-    if (idx > 0) return Store.queue[idx - 1];
-    return null;
-}
-
-function _getNextTrack() {
-    if (typeof Player !== 'undefined' && Player._resolveNextTrack) {
-        const res = Player._resolveNextTrack();
-        if (res && res.track) return res.track;
-    }
-    if (Store.nextAutoTrack) {
-        return Store.nextAutoTrack;
-    }
-    return null;
-}
-
-function setupMobilePlayerSwipe() {
-    const container = document.getElementById('mobile-player-art-container');
-    const track = document.getElementById('mobile-player-carousel-track');
-    const slideCurrent = document.getElementById('art-slide-current');
-    const slidePrev = document.getElementById('art-slide-prev');
-    const slideNext = document.getElementById('art-slide-next');
-    if (!container || !track) return;
-
-    let startX = 0;
-    let startY = 0;
-    let deltaX = 0;
-    let isDragging = false;
-    let isHorizontal = false;
-    let containerWidth = container.offsetWidth || 320;
-    let hasPrev = false;
-    let hasNext = false;
-
-    function onPointerDown(e) {
-        if (e.target.closest('button')) return;
-        const pointer = e.touches ? e.touches[0] : e;
-        startX = pointer.clientX;
-        startY = pointer.clientY;
-        deltaX = 0;
-        isDragging = true;
-        isHorizontal = false;
-        containerWidth = container.offsetWidth || 320;
-        hasPrev = !!_getPrevTrack() || !!Store.currentTrack;
-        hasNext = !!_getNextTrack() || !!Store.currentTrack;
-        track.classList.remove('animating');
-    }
-
-    function onPointerMove(e) {
-        if (!isDragging) return;
-        const pointer = e.touches ? e.touches[0] : e;
-        const currentX = pointer.clientX;
-        const currentY = pointer.clientY;
-        const dx = currentX - startX;
-        const dy = currentY - startY;
-
-        if (!isHorizontal) {
-            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
-                isHorizontal = true;
-            } else if (Math.abs(dy) > 10) {
-                isDragging = false;
-                return;
-            }
-        }
-
-        if (!isHorizontal) return;
-
-        if (e.cancelable) e.preventDefault();
-
-        deltaX = dx;
-
-        if (deltaX < 0 && !hasNext) {
-            deltaX = deltaX * 0.3;
-        } else if (deltaX > 0 && !hasPrev) {
-            deltaX = deltaX * 0.3;
-        }
-
-        track.style.transform = `translateX(${deltaX}px)`;
-
-        const ratio = Math.abs(deltaX) / containerWidth;
-        if (slideCurrent) {
-            slideCurrent.style.transform = `scale(${Math.max(0.85, 1 - ratio * 0.15)})`;
-            slideCurrent.style.opacity = Math.max(0.4, 1 - ratio * 0.6);
-        }
-
-        if (deltaX < 0 && slideNext) {
-            slideNext.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
-            slideNext.style.transform = `translateX(calc(110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
-        } else if (deltaX > 0 && slidePrev) {
-            slidePrev.style.opacity = Math.min(1, 0.5 + ratio * 0.5);
-            slidePrev.style.transform = `translateX(calc(-110% + ${deltaX}px)) scale(${Math.min(1, 0.88 + ratio * 0.12)})`;
-        }
-    }
-
-    function onPointerEnd() {
-        if (!isDragging) return;
-        isDragging = false;
-        track.classList.add('animating');
-
-        const threshold = containerWidth * 0.22;
-        if (deltaX < -threshold && hasNext) {
-            track.style.transform = 'translateX(-110%)';
-            if (slideCurrent) slideCurrent.style.opacity = '0.3';
-            if (slideNext) {
-                slideNext.style.opacity = '1';
-                slideNext.style.transform = 'translateX(0) scale(1)';
-            }
-            setTimeout(() => {
-                playNext();
-            }, 180);
-        } else if (deltaX > threshold && hasPrev) {
-            track.style.transform = 'translateX(110%)';
-            if (slideCurrent) slideCurrent.style.opacity = '0.3';
-            if (slidePrev) {
-                slidePrev.style.opacity = '1';
-                slidePrev.style.transform = 'translateX(0) scale(1)';
-            }
-            setTimeout(() => {
-                playPrev(true);
-            }, 180);
-        } else {
-            track.style.transform = 'translateX(0px)';
-            if (slideCurrent) {
-                slideCurrent.style.transform = 'translateX(0) scale(1)';
-                slideCurrent.style.opacity = '1';
-            }
-            if (slidePrev) {
-                slidePrev.style.transform = 'translateX(-110%) scale(0.88)';
-                slidePrev.style.opacity = '0.5';
-            }
-            if (slideNext) {
-                slideNext.style.transform = 'translateX(110%) scale(0.88)';
-                slideNext.style.opacity = '0.5';
-            }
-        }
-    }
-
-    container.addEventListener('touchstart', onPointerDown, { passive: true });
-    container.addEventListener('touchmove', onPointerMove, { passive: false });
-    container.addEventListener('touchend', onPointerEnd, { passive: true });
-    container.addEventListener('touchcancel', onPointerEnd, { passive: true });
-
-    container.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('mousemove', onPointerMove);
-    window.addEventListener('mouseup', onPointerEnd);
-}
 
     const titleEl = document.getElementById('mobile-track-title');
     const artistEl = document.getElementById('mobile-track-artist');
@@ -703,6 +570,11 @@ function setupMobilePlayerSwipe() {
         likeBtn.classList.toggle('active', liked);
         likeBtn.innerHTML = liked ? ICONS.heartFilled : ICONS.heart;
     }
+
+    // Now that this patches the overlay in place instead of rebuilding it, the
+    // queue indicator has to be refreshed here too.
+    const queueBtn = document.getElementById('mobile-queue-btn');
+    if (queueBtn) queueBtn.classList.toggle('active', _visibleQueue().length > 0);
 }
 
 function closeMobilePlayer() {
@@ -736,15 +608,18 @@ function showMobilePlayer() {
     const track = Store.currentTrack;
     const isPlaying = Store.isPlaying;
     const liked = Store.isLiked(track.id);
-    const duration = Player.audio ? (Player.audio.duration || 0) : 0;
-    const current = Player.audio ? (Player.audio.currentTime || 0) : 0;
-    const pct = duration > 0 ? (current / duration) * 100 : 0;
-    
+    // Read through the shared helpers: under native ExoPlayer playback the
+    // hidden <audio> element has no src, so it reported 0:00 / 0:00 for the
+    // first quarter-second every time the player was opened.
+    const duration = _currentPlaybackDuration();
+    const current = _currentPlaybackTime();
+    const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+
     const prevTrack = _getPrevTrack(true);
     const nextTrack = _getNextTrack();
-    const artUrl = track.thumbnail || FALLBACK_IMG;
-    const prevArtUrl = prevTrack ? (prevTrack.thumbnail || FALLBACK_IMG) : '';
-    const nextArtUrl = nextTrack ? (nextTrack.thumbnail || FALLBACK_IMG) : '';
+    const artUrl = getTrackThumbnail(track);
+    const prevArtUrl = prevTrack ? getTrackThumbnail(prevTrack) : '';
+    const nextArtUrl = nextTrack ? getTrackThumbnail(nextTrack) : '';
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `
@@ -767,13 +642,13 @@ function showMobilePlayer() {
             <div class="mobile-player-art-container" id="mobile-player-art-container">
                 <div class="mobile-player-carousel-track" id="mobile-player-carousel-track">
                     <div class="mobile-player-art-slide slide-prev" id="art-slide-prev">
-                        ${prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : ''}
+                        ${prevArtUrl ? `<img src="${prevArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : ''}
                     </div>
                     <div class="mobile-player-art-slide slide-current" id="art-slide-current">
-                        <img src="${artUrl}" onerror="this.src='${FALLBACK_IMG}'">
+                        <img src="${artUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                     </div>
                     <div class="mobile-player-art-slide slide-next" id="art-slide-next">
-                        ${nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.src='${FALLBACK_IMG}'">` : ''}
+                        ${nextArtUrl ? `<img src="${nextArtUrl}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">` : ''}
                     </div>
                 </div>
             </div>
@@ -933,6 +808,13 @@ function setupBackButton() {
 }
 
 function handleBackButton() {
+    // Priority 0: close the long-press track menu. It lives outside
+    // #modal-overlay, so back used to navigate away with it still on screen.
+    const touchMenu = document.getElementById('3d-touch-menu-overlay');
+    if (touchMenu) {
+        close3DTouchMenu();
+        return;
+    }
     // Priority 0.5: close popup search overlay
     const popupSearch = document.getElementById('popup-search-overlay');
     if (popupSearch && popupSearch.style.display !== 'none' && popupSearch.style.display !== '') {
@@ -1028,7 +910,7 @@ function setupSwipeToQueue() {
         activeRowContent = row.querySelector('.track-row-content');
         if (!activeRowContent) return;
 
-        activeTrackData = JSON.parse(row.getAttribute('data-track') || 'null');
+        activeTrackData = getRowTrack(row);
         swipeBg = row.querySelector('.swipe-bg-queue');
 
         startX = e.touches[0].clientX;
@@ -1119,20 +1001,23 @@ function addToPlayerQueue(track) {
     }
 }
 
-function showToast(message) {
+// `type` is one of 'info' | 'success' | 'error'. Several callers already passed
+// it; it was silently dropped, so failures looked identical to successes.
+function showToast(message, type = 'info') {
     let el = document.getElementById('toast');
     if (!el) {
         el = document.createElement('div');
         el.id = 'toast';
-        el.className = 'toast';
         document.body.appendChild(el);
     }
+    el.className = 'toast toast-' + type;
     el.textContent = message;
-    el.classList.add('show');
+    // Re-add on the next frame so a back-to-back toast replays its animation.
+    requestAnimationFrame(() => el.classList.add('show'));
     clearTimeout(window._toastTimeout);
     window._toastTimeout = setTimeout(() => {
         el.classList.remove('show');
-    }, 2000);
+    }, type === 'error' ? 3200 : 2000);
 }
 
 function toggleQueue() {
@@ -1150,10 +1035,14 @@ function toggleQueue() {
 function renderQueue() {
     const container = document.getElementById('queue-container');
     if (!container) return;
+    // queueChanged fires on every track change and queue edit. Rebuilding a
+    // panel nobody is looking at is pure work — toggleQueue() renders on open.
+    const overlay = document.getElementById('queue-overlay');
+    if (!overlay || overlay.style.display === 'none' || !overlay.style.display) return;
     
     // Explicit user queue excluding currently playing track
-    const nextUpList = (Store.queue || []).filter(t => t.id !== (Store.currentTrack ? Store.currentTrack.id : ''));
-    
+    const nextUpList = _visibleQueue();
+
     let html = `
         <div class="queue-header">
             <h2>Play Queue</h2>
@@ -1167,9 +1056,9 @@ function renderQueue() {
             <div class="queue-section">
                 <h3>Now Playing</h3>
                 <div class="queue-item playing">
-                    <img class="queue-item-thumb" src="${Store.currentTrack.thumbnail || FALLBACK_IMG}">
+                    <img class="queue-item-thumb" src="${escapeAttr(getTrackThumbnail(Store.currentTrack))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                     <div class="queue-item-info">
-                        <div class="queue-item-title">${escapeHtml(Store.currentTrack.title)}</div>
+                        <div class="queue-item-title">${escapeHtml(Store.currentTrack.title || '')}</div>
                         <div class="queue-item-artist">${escapeHtml(Store.currentTrack.channel?.name || '')}</div>
                     </div>
                     <span class="queue-playing-icon">♫</span>
@@ -1194,9 +1083,9 @@ function renderQueue() {
             html += `
                 <div class="queue-item draggable" data-queue-index="${i}" draggable="true" style="user-select:none;-webkit-user-select:none;">
                     <div class="queue-drag-handle" style="cursor:grab; padding: 0 8px 0 2px; color: var(--text-muted); font-size: 1.2rem; font-weight: 700; flex-shrink: 0; touch-action: none;">⋮⋮</div>
-                    <img class="queue-item-thumb" src="${track.thumbnail || FALLBACK_IMG}">
+                    <img class="queue-item-thumb" src="${escapeAttr(getTrackThumbnail(track))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                     <div class="queue-item-info" onclick="playQueueTrack(${i})">
-                        <div class="queue-item-title">${escapeHtml(track.title)}</div>
+                        <div class="queue-item-title">${escapeHtml(track.title || '')}</div>
                         <div class="queue-item-artist">${escapeHtml(track.channel?.name || '')}</div>
                     </div>
                     <div class="queue-item-actions">
@@ -1292,75 +1181,72 @@ function setupQueueDragAndDrop() {
     });
 }
 
+// The queue panel renders `Store.queue` minus the current track, so its row
+// indices are indices into that filtered list. Mutating Store.queue by the same
+// index removed or reordered the wrong song whenever the two lists differed.
+function _visibleQueue() {
+    const curId = Store.currentTrack ? Store.currentTrack.id : '';
+    return (Store.queue || []).filter(t => t && t.id && t.id !== curId);
+}
+
+function _commitVisibleQueue(list) {
+    Store.queue = list;
+    Store.emit('queueChanged');
+    renderQueue();
+    Player._pushNextTrackToNative();
+}
+
 function reorderQueueItems(fromIndex, toIndex) {
-    if (!Store.queue || fromIndex < 0 || toIndex < 0) return;
-    const moved = Store.queue.splice(fromIndex, 1)[0];
-    if (moved) {
-        Store.queue.splice(toIndex, 0, moved);
-        Store.emit('queueChanged');
-        renderQueue();
-        Player._pushNextTrackToNative();
-    }
+    const list = _visibleQueue();
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length) return;
+    const moved = list.splice(fromIndex, 1)[0];
+    if (!moved) return;
+    list.splice(toIndex, 0, moved);
+    _commitVisibleQueue(list);
 }
 
 function clearPlayerQueue() {
-    Store.queue = [];
-    Store.emit('queueChanged');
-    renderQueue();
-    Player._pushNextTrackToNative();
+    // Also drop the remembered context, otherwise Repeat All immediately
+    // refills the queue the user just cleared.
+    Store.originalQueue = Store.currentTrack ? [Store.currentTrack] : [];
+    _commitVisibleQueue([]);
 }
 
 function moveQueueItem(index, direction) {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= Store.queue.length) return;
-    
-    const temp = Store.queue[index];
-    Store.queue[index] = Store.queue[targetIndex];
-    Store.queue[targetIndex] = temp;
-    
-    Store.emit('queueChanged');
-    renderQueue();
-    Player._pushNextTrackToNative();
+    reorderQueueItems(index, index + direction);
 }
 
 function removeQueueItem(index) {
-    Store.queue = Store.queue.filter((_, i) => i !== index);
-    Store.emit('queueChanged');
-    renderQueue();
-    Player._pushNextTrackToNative();
+    const list = _visibleQueue();
+    if (index < 0 || index >= list.length) return;
+    const removed = list[index];
+    list.splice(index, 1);
+    // Drop it from the remembered context too, so Repeat All doesn't bring
+    // back a track the user explicitly removed.
+    if (removed) {
+        Store.originalQueue = (Store.originalQueue || []).filter(t => t && t.id !== removed.id);
+    }
+    _commitVisibleQueue(list);
 }
 
 function playQueueTrack(index) {
-    const nextUpList = (Store.queue || []).filter(t => t.id !== (Store.currentTrack ? Store.currentTrack.id : ''));
-    const track = nextUpList[index];
-    if (track) {
-        Player.playTrack(track);
-    }
+    const track = _visibleQueue()[index];
+    if (track) Player.playTrack(track);
     toggleQueue();
 }
 
 function updateTrackRowsPlayingState() {
-    const rows = document.querySelectorAll('.track-row');
-    rows.forEach((row) => {
-        const trackDataAttr = row.getAttribute('data-track');
-        if (!trackDataAttr) return;
-        try {
-            const track = JSON.parse(trackDataAttr);
-            const isPlaying = Store.currentTrack && Store.currentTrack.id === track.id;
-            
-            row.classList.toggle('playing', isPlaying);
-            
-            const idxEl = row.querySelector('.col-index');
-            if (idxEl) {
-                if (isPlaying) {
-                    idxEl.textContent = '♫';
-                } else {
-                    const origIdx = row.getAttribute('data-index') || '1';
-                    idxEl.textContent = origIdx;
-                }
-            }
-        } catch (e) {
-            console.error('Error updating row playing state:', e);
+    const curId = Store.currentTrack ? Store.currentTrack.id : null;
+    document.querySelectorAll('.track-row').forEach((row) => {
+        const rowId = row.getAttribute('data-track-id');
+        if (!rowId) return;
+        const isPlaying = !!curId && curId === rowId;
+
+        row.classList.toggle('playing', isPlaying);
+
+        const idxEl = row.querySelector('.col-index');
+        if (idxEl) {
+            idxEl.textContent = isPlaying ? '♫' : (row.getAttribute('data-index') || '1');
         }
     });
 }
@@ -1545,7 +1431,7 @@ window._suppressNextClick = false;
 
 function setup3DTouchMenu() {
     const handleStart = (e) => {
-        const trackEl = e.target.closest('[data-track], .track-row, .recent-card');
+        const trackEl = e.target.closest('[data-list-id][data-list-idx]');
         if (!trackEl) return;
 
         // Ignore interactive sub-elements like buttons or links
@@ -1554,20 +1440,27 @@ function setup3DTouchMenu() {
         const touch = e.touches ? e.touches[0] : e;
         _longPressStartPos = { x: touch.clientX, y: touch.clientY };
 
-        const trackDataAttr = trackEl.getAttribute('data-track');
-        if (!trackDataAttr) return;
+        const track = getRowTrack(trackEl);
+        if (!track) return;
 
-        try {
-            const track = JSON.parse(trackDataAttr);
+        {
             clearTimeout(_longPressTimer);
             _longPressTimer = setTimeout(() => {
+                _longPressTimer = null;
                 window._suppressNextClick = true;
+                // Android often swallows the trailing click entirely. Without
+                // this the flag stayed armed and ate the user's *next* tap,
+                // which felt like the app randomly ignoring input.
+                clearTimeout(window._suppressClickTimer);
+                window._suppressClickTimer = setTimeout(() => {
+                    window._suppressNextClick = false;
+                }, 700);
                 if (navigator.vibrate) {
                     try { navigator.vibrate(35); } catch(err) {}
                 }
                 show3DTouchMenu(track, trackEl);
             }, 450);
-        } catch (err) {}
+        }
     };
 
     const handleMove = (e) => {
@@ -1598,18 +1491,30 @@ function setup3DTouchMenu() {
     // Capture-phase click listener to suppress single tap right after a long press
     document.addEventListener('click', (e) => {
         if (window._suppressNextClick) {
+            // Clicks inside the menu we just opened are the whole point — only
+            // swallow the stray tap on the row underneath it.
+            if (e.target.closest('.touch-menu-card')) {
+                window._suppressNextClick = false;
+                return;
+            }
             e.stopPropagation();
             e.preventDefault();
             window._suppressNextClick = false;
+            clearTimeout(window._suppressClickTimer);
             return false;
         }
     }, true);
 }
 
 function show3DTouchMenu(track, targetEl) {
+    if (!track || !track.id) return;
     close3DTouchMenu();
+    // Any other menu/modal must go, or two cards stack on top of each other.
+    closeModal();
 
     const isLiked = Store.isLiked(track.id);
+    const isDownloaded = Store.isDownloaded(track.id);
+    const isDownloading = Store.isDownloading(track.id);
     const overlay = document.createElement('div');
     overlay.id = '3d-touch-menu-overlay';
     overlay.className = 'touch-menu-overlay';
@@ -1617,33 +1522,53 @@ function show3DTouchMenu(track, targetEl) {
     const thumb = getTrackThumbnail(track);
     const title = escapeHtml(track.title || '');
     const artist = escapeHtml(track.channel?.name || track.artist || '');
+    const trackJson = escapeAttr(JSON.stringify(track));
+    const artistId = track.channel?.id || track.artistId;
+
+    let downloadLabel = 'Download for Offline';
+    let downloadIcon = ICONS.download;
+    if (isDownloading) {
+        downloadLabel = 'Downloading…';
+        downloadIcon = '<span class="spinner-small" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
+    } else if (isDownloaded) {
+        downloadLabel = 'Remove Offline Download';
+        downloadIcon = ICONS.downloadCheck;
+    }
 
     overlay.innerHTML = `
         <div class="touch-menu-card" onclick="event.stopPropagation()">
             <div class="touch-menu-header">
-                <img class="touch-menu-thumb" src="${thumb}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
+                <img class="touch-menu-thumb" src="${escapeAttr(thumb)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                 <div class="touch-menu-info">
                     <span class="touch-menu-title">${title}</span>
                     <span class="touch-menu-artist">${artist}</span>
                 </div>
             </div>
             <div class="touch-menu-actions">
-                <button class="touch-menu-btn ${isLiked ? 'active-like' : ''}" onclick="toggle3DTouchLike(event, ${escapeAttr(JSON.stringify(track))})">
-                    ${isLiked ? ICONS.heartFilled : ICONS.heart}
-                    <span>${isLiked ? 'Liked' : 'Like Song'}</span>
-                </button>
-                <button class="touch-menu-btn" onclick="add3DTouchToQueue(event, ${escapeAttr(JSON.stringify(track))})">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <span>Add to Queue</span>
-                </button>
-                <button class="touch-menu-btn" onclick="open3DTouchPlaylistModal(event, ${escapeAttr(JSON.stringify(track))})">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-                    <span>Add to Playlist</span>
-                </button>
-                <button class="touch-menu-btn" onclick="play3DTouchSong(event, ${escapeAttr(JSON.stringify(track))})">
+                <button class="touch-menu-btn" onclick="play3DTouchSong(event, ${trackJson})">
                     ${ICONS.play}
                     <span>Play Song</span>
                 </button>
+                <button class="touch-menu-btn" onclick="add3DTouchToQueue(event, ${trackJson})">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span>Add to Queue</span>
+                </button>
+                <button class="touch-menu-btn ${isLiked ? 'active-like' : ''}" onclick="toggle3DTouchLike(event, ${trackJson})">
+                    ${isLiked ? ICONS.heartFilled : ICONS.heart}
+                    <span>${isLiked ? 'Remove from Liked' : 'Like Song'}</span>
+                </button>
+                <button class="touch-menu-btn" onclick="open3DTouchPlaylistModal(event, ${trackJson})">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                    <span>Add to Playlist</span>
+                </button>
+                <button class="touch-menu-btn ${isDownloaded ? 'active' : ''}" onclick="download3DTouchTrack(event, ${trackJson})">
+                    ${downloadIcon}
+                    <span>${downloadLabel}</span>
+                </button>
+                ${artistId ? `<button class="touch-menu-btn" onclick="open3DTouchArtist(event, '${escapeAttr(encodeURIComponent(artistId))}')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span>Go to Artist</span>
+                </button>` : ''}
             </div>
         </div>
     `;
@@ -1670,6 +1595,20 @@ function toggle3DTouchLike(event, track) {
     const liked = Store.isLiked(track.id);
     showToast(liked ? 'Added to Liked Songs' : 'Removed from Liked Songs');
     close3DTouchMenu();
+    if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
+    if (Router.currentRoute === '/liked') Router.render('/liked');
+}
+
+function download3DTouchTrack(event, track) {
+    if (event) event.stopPropagation();
+    close3DTouchMenu();
+    setTimeout(() => handleTrackDownloadClick(track), 160);
+}
+
+function open3DTouchArtist(event, artistId) {
+    if (event) event.stopPropagation();
+    close3DTouchMenu();
+    navigate('/artist/' + artistId);
 }
 
 function add3DTouchToQueue(event, track) {
@@ -1984,16 +1923,9 @@ function triggerPlaylistPopupForButton(btn) {
     const row = btn.closest('.track-row');
     let track = null;
     if (row) {
-        const trackData = row.getAttribute('data-track');
-        if (trackData) {
-            try {
-                track = JSON.parse(trackData);
-            } catch (e) {
-                console.error("Failed to parse data-track JSON", e);
-            }
-        }
+        track = getRowTrack(row);
     }
-    
+
     if (!track) {
         track = Store.currentTrack;
     }
@@ -2041,7 +1973,7 @@ function showAddToPlaylistModal(track) {
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width: 340px; width: 90%; text-align: left;">
         <h3 style="margin-top: 0; margin-bottom: 12px;">Add to Playlist</h3>
         <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-            <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.src='${FALLBACK_IMG}'" style="width: 48px; height: 48px; border-radius: var(--radius-xs); object-fit: cover;">
+            <img src="${track.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" style="width: 48px; height: 48px; border-radius: var(--radius-xs); object-fit: cover;">
             <div style="display: flex; flex-direction: column; overflow: hidden; white-space: nowrap;">
                 <span style="font-weight: 600; font-size: 0.95rem; text-overflow: ellipsis; overflow: hidden; color: var(--text-primary);">${escapeHtml(track.title || '')}</span>
                 <span style="font-size: 0.8rem; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden;">${escapeHtml(track.channel?.name || '')}</span>

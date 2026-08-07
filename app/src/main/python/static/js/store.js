@@ -200,8 +200,12 @@ const Store = {
 
     async _syncWithBackend() {
         try {
-            const resp = await fetch(getApiUrl('/api/user/data'));
-            if (!resp.ok) return;
+            // Retry: this runs while store.js is still parsing, and MainActivity
+            // starts the Flask server on a background thread. A plain fetch lost
+            // the race on a cold start, so a fresh install never restored the
+            // user's playlists and liked songs from the backend file.
+            const resp = await fetchWithRetry(getApiUrl('/api/user/data'));
+            if (!resp || !resp.ok) return;
             const res = await resp.json();
             if (res.ok && res.data) {
                 const bData = res.data;
@@ -278,9 +282,13 @@ const Store = {
         return this.likedSongs.some(t => t.id === trackId);
     },
     toggleLike(track) {
+        if (!track || !track.id) return;
         if (this.isLiked(track.id)) {
             this.likedSongs = this.likedSongs.filter(t => t.id !== track.id);
         } else {
+            // Guard against half-built stubs (e.g. the {id} passed by the
+            // Liked page's remove button) ever landing in the library.
+            if (!track.title) return;
             this.likedSongs = [track, ...this.likedSongs];
         }
         this.save();
@@ -330,11 +338,17 @@ const Store = {
     // Offline Downloads
     async loadDownloads() {
         try {
-            const resp = await fetch(getApiUrl('/api/downloads'));
-            if (resp.ok) {
+            // Same cold-start race as _syncWithBackend: without retrying, the
+            // offline library looked empty until the app was reopened.
+            const resp = await fetchWithRetry(getApiUrl('/api/downloads'));
+            if (resp && resp.ok) {
                 const list = await resp.json();
                 this.downloadedTracks = Array.isArray(list) ? list : [];
                 this.emit('downloadsChanged');
+                // The offline page and the download badges are drawn from this.
+                if (typeof Router !== 'undefined' && Router.currentRoute === '/downloads') {
+                    Router.render('/downloads');
+                }
             }
         } catch(e) {
             console.warn('Failed to load downloaded tracks:', e);

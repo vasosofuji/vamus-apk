@@ -24,13 +24,26 @@ const Player = {
     _isCrossfading: false,      // true while a crossfade transition is in progress
     _crossfadeInterval: null,   // the interval that drives the volume ramp
     _fetchingRadio: false,      // prevents duplicate radio fetches
+    _prefetchingRadio: false,   // prevents duplicate auto-radio pre-fetches
+    _autoRadioSeedId: null,     // track Store.nextAutoTrack was pre-fetched for
     _playedRadioTrackIds: [],   // ring buffer preventing auto-radio loops
+    _shuffleNextId: null,       // sticky shuffle pick (see _resolveNextTrack)
+    _errorRetries: 0,           // consecutive stream retries for the same track
+    _errorRetryTrackId: null,
 
     _recordPlayedTrack(id) {
         if (!id) return;
         this._playedRadioTrackIds = [id, ...(this._playedRadioTrackIds || []).filter(x => x !== id)].slice(0, 60);
     },
-    
+
+    // Stream URL for a track, preferring the offline copy when we have one.
+    _streamUrlFor(track) {
+        if (!track || !track.id) return '';
+        return Store.isDownloaded(track.id)
+            ? getApiUrl(`/api/downloads/audio/${track.id}`)
+            : getApiUrl(`/api/stream?id=${track.id}`);
+    },
+
     init() {
         this.audio = document.getElementById('audio-player');
         this.audio.addEventListener('ended', () => this.onEnded());
@@ -68,72 +81,125 @@ const Player = {
     
     // -----------------------------------------------------------------------
     // Determine the next track (shared by playNext, crossfade, and auto-radio)
-    // Returns { track } or null if nothing to play
+    // Returns { track } or null if nothing to play.
+    //
+    // Options:
+    //   honorRepeatOne — false for a manual skip, so pressing Next in Repeat
+    //                    One moves on instead of replaying the same song.
+    //   commit         — true only for the caller that is actually about to
+    //                    play. Everything else (carousel art, native "next
+    //                    track" hint, the crossfade poll that runs 4x/second)
+    //                    peeks, so resolving must not mutate the queue.
     // -----------------------------------------------------------------------
-    _resolveNextTrack() {
+    _resolveNextTrack(options = {}) {
+        const honorRepeatOne = options.honorRepeatOne !== false;
+        const commit = options.commit === true;
         if (!Store.currentTrack) return null;
-        
-        if (Store.repeat === 'one') {
+
+        if (honorRepeatOne && Store.repeat === 'one') {
             return { track: Store.currentTrack };
         }
 
-        let userQueueNext = (Store.queue || []).filter(t => t.id !== Store.currentTrack.id);
-        
-        if (userQueueNext.length === 0 && Store.repeat === 'all' && Store.originalQueue && Store.originalQueue.length > 0) {
-            Store.queue = Store.originalQueue.filter(t => t.id !== Store.currentTrack.id);
-            userQueueNext = Store.queue;
-            Store.emit('queueChanged');
+        const curId = Store.currentTrack.id;
+        let upcoming = (Store.queue || []).filter(t => t && t.id && t.id !== curId);
+
+        // Queue exhausted but Repeat All is on — wrap back to the top of the
+        // context this queue came from.
+        if (upcoming.length === 0 && Store.repeat === 'all' &&
+            Store.originalQueue && Store.originalQueue.length > 1) {
+            upcoming = Store.originalQueue.filter(t => t && t.id && t.id !== curId);
+            if (commit && upcoming.length > 0) {
+                Store.queue = upcoming;
+                Store.emit('queueChanged');
+            }
         }
 
-        if (userQueueNext.length > 0) {
-            if (Store.shuffle) {
-                const randomIndex = Math.floor(Math.random() * userQueueNext.length);
-                return { track: userQueueNext[randomIndex] };
+        if (upcoming.length === 0) return null;
+
+        if (Store.shuffle) {
+            // Stick to one pick until it is actually played. Re-rolling on every
+            // peek made the carousel's "next" art, the track pushed to the
+            // notification, and the track that really played all disagree.
+            let pick = upcoming.find(t => t.id === this._shuffleNextId);
+            if (!pick) {
+                pick = upcoming[Math.floor(Math.random() * upcoming.length)];
+                this._shuffleNextId = pick.id;
             }
-            return { track: userQueueNext[0] };
+            return { track: pick };
         }
-        
-        return null;
+        return { track: upcoming[0] };
     },
-    
-    playTrack(track, newQueue = null) {
+
+    // Applies a new playback context. `newQueue` is the full list the user
+    // tapped into; only the tracks *after* the tapped one are up next.
+    _applyQueueContext(track, newQueue, fromHistory) {
+        if (Array.isArray(newQueue) && newQueue.length > 0) {
+            const seen = new Set();
+            const dedup = [];
+            newQueue.forEach(t => {
+                if (t && t.id && !seen.has(t.id)) { seen.add(t.id); dedup.push(t); }
+            });
+            const idx = dedup.findIndex(t => t.id === track.id);
+            // Playing track 5 of a playlist must continue with 6, 7, 8 — not
+            // jump back to track 1.
+            Store.queue = idx >= 0 ? dedup.slice(idx + 1) : dedup.filter(t => t.id !== track.id);
+            Store.originalQueue = dedup;
+            // Only a real multi-track context (Play All, a playlist, an album)
+            // starts a new session. Tapping one search result shouldn't wipe the
+            // back-stack.
+            if (!fromHistory && dedup.length > 1) Store.history = [];
+            return;
+        }
+
+        const wasQueued = (Store.queue || []).some(t => t && t.id === track.id);
+        Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
+
+        if ((Store.originalQueue || []).some(t => t && t.id === track.id)) return;
+
+        if (wasQueued && Store.originalQueue && Store.originalQueue.length > 0) {
+            // Manually queued (swipe-to-queue) while a playlist was playing:
+            // remember it without throwing away the surrounding context.
+            Store.originalQueue = [...Store.originalQueue, track];
+            return;
+        }
+
+        // The track has nothing to do with the remembered context, so drop it.
+        // Otherwise Repeat All resurrects an unrelated old list — the classic
+        // "my queue suddenly started playing my Liked Songs".
+        Store.originalQueue = [track, ...Store.queue];
+    },
+
+    playTrack(track, newQueue = null, options = {}) {
+        if (!track || !track.id) return;
         // If we're in the middle of a crossfade, clean it up first
         this._cleanupCrossfade();
-        
-        if (Store.currentTrack && Store.currentTrack.id !== track.id) {
-            Store.history = [...Store.history, Store.currentTrack];
+
+        if (!options.fromHistory && Store.currentTrack && Store.currentTrack.id !== track.id) {
+            // Capped: an unbounded history grows the heap for the whole session.
+            Store.history = [...Store.history, Store.currentTrack].slice(-100);
         }
-        
+
         Store.currentTrack = track;
         Store.isPlaying = true;
         this._recordPlayedTrack(track.id);
+        this._shuffleNextId = null;
+        this._errorRetries = 0;
+        this._errorRetryTrackId = track.id;
 
-        // Always remove the currently playing track from Store.queue to prevent duplicate entries
-        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
-        
-        if (newQueue && newQueue.length > 1) {
-            // Explicit context change (e.g. "Play All" on album or playlist)
-            Store.queue = newQueue.filter(t => t.id !== track.id);
-            Store.originalQueue = [...newQueue];
-            Store.history = [];
-        } else if (!Store.originalQueue || Store.originalQueue.length === 0) {
-            Store.originalQueue = [track, ...(Store.queue || [])];
-        }
+        this._applyQueueContext(track, newQueue, !!options.fromHistory);
 
         Store.addToRecent(track);
         Store.emit('queueChanged');
-        
+
         // Sync to native media session
         if (window.AndroidMediaSession) {
             const durMs = Math.round((track.durationInSec || 0) * 1000);
             window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '', durMs);
             window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
-        
-        const url = Store.isDownloaded(track.id)
-            ? getApiUrl(`/api/downloads/audio/${track.id}`)
-            : getApiUrl(`/api/stream?id=${track.id}`);
-        
+
+        const url = this._streamUrlFor(track);
+
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
             window.AndroidMediaSession.playUri(url, false, 0);
         } else {
@@ -154,25 +220,34 @@ const Player = {
     // Crossfade-aware version: starts the next track via crossfade instead of hard-cut
     // Crossfade-aware version: starts the next track via crossfade instead of hard-cut
     _playTrackCrossfade(track) {
+        if (!track || !track.id) return;
         if (Store.currentTrack && Store.currentTrack.id !== track.id) {
-            Store.history = [...Store.history, Store.currentTrack];
+            Store.history = [...Store.history, Store.currentTrack].slice(-100);
         }
-        
+
         Store.currentTrack = track;
         Store.isPlaying = true;
+        // Crossfaded tracks used to skip both of these, so the queue kept
+        // showing the song that was already playing and auto-radio could serve
+        // it again a few tracks later.
+        this._recordPlayedTrack(track.id);
+        this._shuffleNextId = null;
+        Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
+        if (!Store.originalQueue || !Store.originalQueue.some(t => t && t.id === track.id)) {
+            Store.originalQueue = [track, ...Store.queue];
+        }
         Store.addToRecent(track);
+        Store.emit('queueChanged');
         this._crossfadeTrackId = track.id;
-        
+
         // Sync to native media session
         if (window.AndroidMediaSession) {
             const durMs = Math.round((track.durationInSec || 0) * 1000);
             window.AndroidMediaSession.updateMetadata(track.title || '', track.channel?.name || 'Unknown', track.thumbnail || '', durMs);
             window.AndroidMediaSession.updatePlaybackState(true, 0, durMs);
         }
-        
-        const url = Store.isDownloaded(track.id)
-            ? getApiUrl(`/api/downloads/audio/${track.id}`)
-            : getApiUrl(`/api/stream?id=${track.id}`);
+
+        const url = this._streamUrlFor(track);
         const rawCfDuration = Store.crossfadeDuration || 5;
         const currentDur = (this.audio && this.audio.duration) ? this.audio.duration : 30;
         const effectiveCfDuration = Math.max(1, Math.min(rawCfDuration, currentDur * 0.4));
@@ -204,9 +279,12 @@ const Player = {
             this._crossfadeAudio.src = url;
             this._crossfadeAudio.volume = 0;
             
-            // Listeners for incoming crossfade audio
+            // Listeners for incoming crossfade audio. `loadedmetadata` matters
+            // too: this element is promoted to the primary player once the ramp
+            // finishes, and without it the total-time label stops updating.
             this._crossfadeAudio.addEventListener('ended', () => this.onEnded());
             this._crossfadeAudio.addEventListener('error', (e) => this.onError(e));
+            this._crossfadeAudio.addEventListener('loadedmetadata', () => this.updateDuration());
             this._crossfadeAudio.addEventListener('play', () => {
                 if (window.AndroidMediaSession) {
                     window.AndroidMediaSession.updatePlaybackState(true, Math.round((this._crossfadeAudio || this.audio).currentTime * 1000));
@@ -339,28 +417,31 @@ const Player = {
     },
     
     playNext() {
-        const next = this._resolveNextTrack();
+        // A manual skip must move forward even in Repeat One. Honouring it here
+        // made the Next button replay the same song, which read as "the song
+        // repeats for no reason".
+        const next = this._resolveNextTrack({ honorRepeatOne: false, commit: true });
         if (next) {
-            // Remove played track from user queue so it doesn't linger or duplicate
-            Store.queue = (Store.queue || []).filter(t => t.id !== next.track.id);
-            Store.emit('queueChanged');
+            // playTrack removes the track from the queue itself.
             this.playTrack(next.track);
             return;
         }
-        
-        if (Store.nextAutoTrack) {
-            const t = Store.nextAutoTrack;
+
+        const auto = Store.nextAutoTrack;
+        if (auto && auto.id && auto.id !== (Store.currentTrack && Store.currentTrack.id)) {
             Store.nextAutoTrack = null;
-            this.playTrack(t);
+            this._autoRadioSeedId = null;
+            this.playTrack(auto);
             return;
         }
+        Store.nextAutoTrack = null;
 
         // Queue is empty — manual skip next fetches and plays a similar song immediately
         if (Store.currentTrack && !this._fetchingRadio) {
             this._fetchRadioAndPlay();
         }
     },
-    
+
     _fetchRadioAndPlay() {
         if (this._fetchingRadio || !Store.currentTrack) return;
         this._fetchingRadio = true;
@@ -385,14 +466,18 @@ const Player = {
                     ...(this._playedRadioTrackIds || [])
                 ]);
                 if (Store.currentTrack) existingIds.add(Store.currentTrack.id);
-                const newTracks = tracks.filter(t => !existingIds.has(t.id));
-                
+                const newTracks = tracks.filter(t => t && t.id && !existingIds.has(t.id));
+
                 if (newTracks.length > 0) {
                     this.playTrack(newTracks[0]);
-                } else if (tracks.length > 0) {
-                    const fallbackTrack = tracks.find(t => t.id !== Store.currentTrack?.id) || tracks[0];
-                    this.playTrack(fallbackTrack);
+                    return;
                 }
+                // Everything came back already-played. Fall back to anything
+                // that isn't the song currently playing — never `tracks[0]`,
+                // which is often the seed itself and just replays it.
+                const fallbackTrack = tracks.find(
+                    t => t && t.id && t.id !== (Store.currentTrack && Store.currentTrack.id));
+                if (fallbackTrack) this.playTrack(fallbackTrack);
             })
             .catch(e => {
                 this._fetchingRadio = false;
@@ -422,32 +507,39 @@ const Player = {
         if (Store.history.length > 0) {
             const prev = Store.history[Store.history.length - 1];
             Store.history = Store.history.slice(0, -1);
-            this.playTrack(prev, Store.queue);
+            // fromHistory: don't push the current track back onto the history
+            // stack (that made Previous ping-pong between two songs forever)
+            // and don't let the queue be redefined by going backwards.
+            const wasCurrent = Store.currentTrack;
+            this.playTrack(prev, null, { fromHistory: true });
+            if (wasCurrent && wasCurrent.id !== prev.id &&
+                !(Store.queue || []).some(t => t && t.id === wasCurrent.id)) {
+                // The song we just left becomes the next one up again.
+                Store.queue = [wasCurrent, ...(Store.queue || [])];
+                Store.emit('queueChanged');
+                this._pushNextTrackToNative();
+            }
         } else {
-            const idx = (Store.queue || []).findIndex(t => t.id === Store.currentTrack.id);
-            if (idx > 0) {
-                this.playTrack(Store.queue[idx - 1]);
-            } else {
-                if (window.AndroidMediaSession && typeof window.AndroidMediaSession.seekTo === 'function') {
-                    window.AndroidMediaSession.seekTo(0);
-                } else {
-                    this.audio.currentTime = 0;
-                }
+            if (window.AndroidMediaSession && typeof window.AndroidMediaSession.seekTo === 'function') {
+                window.AndroidMediaSession.seekTo(0);
+            } else if (this.audio) {
+                this.audio.currentTime = 0;
             }
         }
     },
-    
+
     onEnded() {
         // If we're in a crossfade, the old track ended naturally — just clean up
         if (this._isCrossfading) return;
-        
+
         if (Store.repeat === 'one' && Store.currentTrack) {
             this.updateRepeatUI();
             this._pushNextTrackToNative();
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-                const url = getApiUrl(`/api/stream?id=${Store.currentTrack.id}`);
-                window.AndroidMediaSession.playUri(url, false, 0);
-            } else {
+                // Use the offline copy when there is one; the old code always
+                // hit /api/stream, so Repeat One broke with no connection.
+                window.AndroidMediaSession.playUri(this._streamUrlFor(Store.currentTrack), false, 0);
+            } else if (this.audio) {
                 this.audio.currentTime = 0;
                 this.audio.play().catch(e => console.error('Play error:', e));
             }
@@ -455,12 +547,28 @@ const Player = {
         }
         this.playNext();
     },
-    
+
     onError(e) {
         console.error('Audio error:', e);
         if (!Store.currentTrack) return;
-        // Retry via Flask stream endpoint
-        const retryUrl = getApiUrl(`/api/stream?id=${Store.currentTrack.id}&t=${Date.now()}`);
+
+        // Bounded retries. Re-assigning src fires another `error` event when the
+        // stream is genuinely dead, so the old unguarded retry looped on the
+        // same track forever instead of moving on.
+        if (this._errorRetryTrackId !== Store.currentTrack.id) {
+            this._errorRetryTrackId = Store.currentTrack.id;
+            this._errorRetries = 0;
+        }
+        if (this._errorRetries >= 2) {
+            this._errorRetries = 0;
+            this.playNext();
+            return;
+        }
+        this._errorRetries++;
+
+        const retryUrl = Store.isDownloaded(Store.currentTrack.id)
+            ? this._streamUrlFor(Store.currentTrack)
+            : getApiUrl(`/api/stream?id=${Store.currentTrack.id}&t=${Date.now()}`);
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
             window.AndroidMediaSession.playUri(retryUrl, false, 0);
         } else if (this.audio) {
@@ -468,7 +576,7 @@ const Player = {
             this.audio.play().catch(() => this.playNext());
         }
     },
-    
+
     seekTo(event) {
         const rect = event.currentTarget.getBoundingClientRect();
         const pct = (event.clientX - rect.left) / rect.width;
@@ -525,6 +633,7 @@ const Player = {
     
     toggleShuffle() {
         Store.shuffle = !Store.shuffle;
+        this._shuffleNextId = null;
         Store.save();
         const btn = document.getElementById('shuffle-btn');
         if (btn) btn.classList.toggle('active', Store.shuffle);
@@ -562,21 +671,29 @@ const Player = {
         const next = this._resolveNextTrack();
         if (next && next.track) {
             Store.nextAutoTrack = null;
+            this._autoRadioSeedId = null;
             const t = next.track;
             if (t.thumbnail) preloadImage(t.thumbnail);
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-                const url = getApiUrl(`/api/stream?id=${t.id}`);
                 window.AndroidMediaSession.setNextTrackInfo(
                     t.id || '',
-                    url,
+                    this._streamUrlFor(t),
                     t.title || '',
                     (t.channel && t.channel.name) || t.artist || 'Unknown',
                     t.thumbnail || ''
                 );
             }
-        } else if (Store.autoplayEnabled && Store.currentTrack) {
-            // Pre-fetch next radio track into native Java & JS auto track cache
+        } else if (Store.autoplayEnabled && Store.currentTrack &&
+                   !this._prefetchingRadio &&
+                   !(Store.nextAutoTrack && this._autoRadioSeedId === Store.currentTrack.id)) {
             const track = Store.currentTrack;
+            // This runs on every queue edit, shuffle/repeat toggle and track
+            // change. Without the guards above, each one kicked off another
+            // 5-retry radio request and whichever landed last silently changed
+            // what plays next.
+            this._prefetchingRadio = true;
+            this._autoRadioSeedId = track.id;
+
             const params = new URLSearchParams({
                 id: track.id,
                 title: track.title || '',
@@ -585,17 +702,21 @@ const Player = {
             fetchWithRetry(getApiUrl(`/api/radio?${params.toString()}`))
                 .then(r => r.json())
                 .then(tracks => {
+                    this._prefetchingRadio = false;
                     if (!tracks || !tracks.length) return;
+                    // The seed may have changed while the request was in flight.
+                    if (!Store.currentTrack || Store.currentTrack.id !== track.id) return;
+
                     const playedSet = new Set([
                         ...(Store.history || []).map(t => t.id),
                         ...(this._playedRadioTrackIds || [])
                     ]);
-                    if (Store.currentTrack) playedSet.add(Store.currentTrack.id);
+                    playedSet.add(Store.currentTrack.id);
 
-                    const filteredRadio = tracks.filter(t => !playedSet.has(t.id));
+                    const filteredRadio = tracks.filter(t => t && t.id && !playedSet.has(t.id));
                     const firstNew = filteredRadio.length > 0
                         ? filteredRadio[0]
-                        : (tracks.find(t => t.id !== Store.currentTrack?.id) || tracks[0]);
+                        : tracks.find(t => t && t.id && t.id !== Store.currentTrack.id);
 
                     if (!firstNew) return;
                     Store.nextAutoTrack = firstNew;
@@ -605,10 +726,9 @@ const Player = {
                     fetch(getApiUrl('/api/prefetch?ids=' + firstNew.id)).catch(() => {});
 
                     if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-                        const url = getApiUrl(`/api/stream?id=${firstNew.id}`);
                         window.AndroidMediaSession.setNextTrackInfo(
                             firstNew.id || '',
-                            url,
+                            this._streamUrlFor(firstNew),
                             firstNew.title || '',
                             (firstNew.channel && firstNew.channel.name) || firstNew.artist || 'Unknown',
                             firstNew.thumbnail || ''
@@ -620,13 +740,14 @@ const Player = {
                     if (overlay && overlay.style.display === 'flex') {
                         const nextSlide = document.getElementById('art-slide-next');
                         if (nextSlide && firstNew.thumbnail) {
-                            nextSlide.innerHTML = `<img src="${firstNew.thumbnail}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
+                            nextSlide.innerHTML = `<img src="${escapeAttr(firstNew.thumbnail)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">`;
                         }
                     }
                 })
-                .catch(() => {});
-        } else {
+                .catch(() => { this._prefetchingRadio = false; });
+        } else if (!Store.autoplayEnabled || !Store.currentTrack) {
             Store.nextAutoTrack = null;
+            this._autoRadioSeedId = null;
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
                 window.AndroidMediaSession.setNextTrackInfo('', '', '', '', '');
             }
@@ -640,13 +761,16 @@ const Player = {
 
         // Also push the full queue so native can keep advancing indefinitely
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
-            const mapped = (Store.queue || []).map(t => ({
-                id: t.id || '',
-                title: t.title || '',
-                artist: (t.channel && t.channel.name) || t.artist || 'Unknown',
-                thumbnail: t.thumbnail || '',
-                streamUrl: getApiUrl(`/api/stream?id=${t.id}`),
-            }));
+            const curId = (Store.currentTrack && Store.currentTrack.id) || '';
+            const mapped = (Store.queue || [])
+                .filter(t => t && t.id && t.id !== curId)
+                .map(t => ({
+                    id: t.id,
+                    title: t.title || '',
+                    artist: (t.channel && t.channel.name) || t.artist || 'Unknown',
+                    thumbnail: t.thumbnail || '',
+                    streamUrl: this._streamUrlFor(t),
+                }));
             window.AndroidMediaSession.setPlaybackContext(
                 JSON.stringify(mapped),
                 (Store.currentTrack && Store.currentTrack.id) || '',
@@ -655,39 +779,60 @@ const Player = {
             );
         }
 
-        // Warm the tracks that actually come next. Taking the head of the queue
-        // would re-warm already-played tracks whenever the user is partway
-        // through a list, leaving the real next track cold.
+        // Warm the tracks that actually come next. Store.queue already holds
+        // only what is still upcoming, so its head is the right thing to warm;
+        // when it runs short and Repeat All is on, the wrap-around tracks from
+        // the original context are next instead.
         try {
-            const queue = Store.queue || [];
             const curId = Store.currentTrack && Store.currentTrack.id;
-            const idx = curId ? queue.findIndex(t => t.id === curId) : -1;
-            const after = idx >= 0 ? queue.slice(idx + 1) : queue;
-            let upcoming = after.filter(t => t.id && t.id !== curId).slice(0, 3);
-            // Near the end of a looping queue the next tracks wrap to the front.
+            const upcoming = (Store.queue || []).filter(t => t && t.id && t.id !== curId).slice(0, 3);
             if (upcoming.length < 3 && Store.repeat === 'all') {
-                upcoming = upcoming.concat(
-                    queue.filter(t => t.id && t.id !== curId && !upcoming.includes(t))
-                         .slice(0, 3 - upcoming.length));
+                const have = new Set(upcoming.map(t => t.id));
+                (Store.originalQueue || []).forEach(t => {
+                    if (upcoming.length >= 3) return;
+                    if (t && t.id && t.id !== curId && !have.has(t.id)) {
+                        have.add(t.id);
+                        upcoming.push(t);
+                    }
+                });
             }
-            const upcomingIds = upcoming.map(t => t.id);
-            if (upcomingIds.length > 0) {
-                fetch(getApiUrl('/api/prefetch?ids=' + upcomingIds.join(','))).catch(() => {});
+            // Downloaded tracks need no stream resolution.
+            const ids = upcoming.filter(t => !Store.isDownloaded(t.id)).map(t => t.id);
+            if (ids.length > 0) {
+                fetch(getApiUrl('/api/prefetch?ids=' + ids.join(','))).catch(() => {});
             }
         } catch (e) {}
     },
 
+    // Native advanced on its own (screen off / JS throttled) — mirror it in JS.
     _onNativeAdvanced(nextTrackId) {
         if (!nextTrackId) return;
-        const track = (Store.queue || []).find(t => t.id === nextTrackId) || Store.nextAutoTrack;
-        if (!track) return;
-        if (Store.currentTrack && Store.currentTrack.id !== track.id) {
-            Store.history = [...Store.history, Store.currentTrack];
+        if (Store.currentTrack && Store.currentTrack.id === nextTrackId) return;
+
+        let track = (Store.queue || []).find(t => t && t.id === nextTrackId);
+        if (!track && Store.nextAutoTrack && Store.nextAutoTrack.id === nextTrackId) {
+            // Only adopt the pre-fetched radio track when it really is the one
+            // native started; otherwise we'd mislabel the song now playing.
+            track = Store.nextAutoTrack;
         }
-        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
+        if (!track) return;
+
+        if (Store.nextAutoTrack && Store.nextAutoTrack.id === track.id) {
+            Store.nextAutoTrack = null;
+            this._autoRadioSeedId = null;
+        }
+        if (Store.currentTrack && Store.currentTrack.id !== track.id) {
+            Store.history = [...Store.history, Store.currentTrack].slice(-100);
+        }
+        Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
         Store.currentTrack = track;
         Store.isPlaying = true;
+        // Without this the radio ring buffer never learned about tracks native
+        // played, so it happily served them again a few songs later.
+        this._recordPlayedTrack(track.id);
+        this._shuffleNextId = null;
         Store.addToRecent(track);
+        Store.emit('queueChanged');
         this.showPlayerBar();
         this.updatePlayerUI();
         this._pushNextTrackToNative();
@@ -775,11 +920,28 @@ const Player = {
                 // Don't crossfade if repeat-one (it restarts the same track)
                 if (Store.repeat === 'one') return;
                 
-                const next = this._resolveNextTrack();
-                if (next && (!this._crossfadeTrackId || this._crossfadeTrackId !== next.track.id)) {
-                    this._playTrackCrossfade(next.track);
-                } else if (Store.autoplayEnabled && Store.currentTrack && !this._fetchingRadio) {
-                    // Fetch radio tracks and crossfade into the first one
+                const next = this._resolveNextTrack({ commit: true });
+                if (next && next.track.id !== Store.currentTrack.id) {
+                    if (this._crossfadeTrackId !== next.track.id) {
+                        this._playTrackCrossfade(next.track);
+                    }
+                    // A queued track exists — never fall through to radio.
+                    return;
+                }
+
+                // Queue is empty: crossfade into a pre-fetched radio track, or
+                // fetch one now.
+                const auto = Store.nextAutoTrack;
+                if (auto && auto.id && auto.id !== Store.currentTrack.id) {
+                    if (this._crossfadeTrackId !== auto.id) {
+                        Store.nextAutoTrack = null;
+                        this._autoRadioSeedId = null;
+                        this._playTrackCrossfade(auto);
+                    }
+                    return;
+                }
+
+                if (Store.autoplayEnabled && !this._fetchingRadio) {
                     this._fetchingRadio = true;
                     const track = Store.currentTrack;
                     const params = new URLSearchParams({
@@ -792,11 +954,17 @@ const Player = {
                         .then(tracks => {
                             this._fetchingRadio = false;
                             if (!tracks || !tracks.length) return;
-                            const existingIds = new Set(Store.queue.map(t => t.id));
-                            existingIds.add(Store.currentTrack?.id);
-                            const newTracks = tracks.filter(t => !existingIds.has(t.id));
-                            const firstNew = newTracks[0];
-                            if (!this._crossfadeTrackId || this._crossfadeTrackId !== firstNew.id) {
+                            if (!Store.currentTrack || Store.currentTrack.id !== track.id) return;
+                            const existingIds = new Set([
+                                ...(Store.queue || []).map(t => t && t.id),
+                                ...(this._playedRadioTrackIds || []),
+                                Store.currentTrack.id
+                            ]);
+                            // `newTracks[0]` could be undefined here, which used
+                            // to throw on `.id` and abort the transition.
+                            const firstNew = tracks.find(t => t && t.id && !existingIds.has(t.id))
+                                || tracks.find(t => t && t.id && t.id !== Store.currentTrack.id);
+                            if (firstNew && this._crossfadeTrackId !== firstNew.id) {
                                 this._playTrackCrossfade(firstNew);
                             }
                         })

@@ -73,6 +73,11 @@ public class MediaPlaybackService extends Service {
     private ExoPlayer player;
     private ExoPlayer crossfadePlayer;
     private Player.Listener crossfadeListener;
+    // The in-flight crossfade volume ramp. It has to be cancellable: it used to
+    // keep running after a new track was started mid-fade and, on its final
+    // step, promoted an already-released crossfadePlayer (null) to `player` —
+    // which silently killed playback until the user tapped something.
+    private Runnable crossfadeRamp;
     private float currentVolume = 1.0f;
 
     private long currentTrackStartMs = 0;
@@ -123,6 +128,16 @@ public class MediaPlaybackService extends Service {
             int amp = s.indexOf('&');
             return amp >= 0 ? s.substring(0, amp) : s;
         }
+        // Offline playback uses /api/downloads/audio/<videoId>, which has no
+        // "id=" query param. Returning a URL prefix here made the radio seed
+        // garbage whenever a downloaded track finished.
+        int slash = url.lastIndexOf('/');
+        if (slash >= 0 && slash < url.length() - 1) {
+            String tail = url.substring(slash + 1);
+            int q = tail.indexOf('?');
+            if (q >= 0) tail = tail.substring(0, q);
+            if (!tail.isEmpty()) return tail;
+        }
         return url.substring(0, Math.min(40, url.length()));
     }
 
@@ -158,6 +173,10 @@ public class MediaPlaybackService extends Service {
             stopSelfSafely();
         }
         return START_STICKY;
+    }
+
+    public boolean isForegroundActive() {
+        return isForeground;
     }
 
     public void promoteToForeground(Notification notification) {
@@ -198,6 +217,7 @@ public class MediaPlaybackService extends Service {
         mainHandler.removeCallbacksAndMessages(null);
         pendingAction = null;
         positionTicker = null;
+        crossfadeRamp = null;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE);
@@ -359,7 +379,15 @@ public class MediaPlaybackService extends Service {
         }
     }
 
+    private void cancelCrossfadeRamp() {
+        if (crossfadeRamp != null) {
+            mainHandler.removeCallbacks(crossfadeRamp);
+            crossfadeRamp = null;
+        }
+    }
+
     private void rampCrossfade(final int durMs) {
+        cancelCrossfadeRamp();
         final int steps = 40;
         final int interval = Math.max(10, durMs / steps);
         final float target = currentVolume;
@@ -367,6 +395,8 @@ public class MediaPlaybackService extends Service {
         final Runnable ramp = new Runnable() {
             @Override
             public void run() {
+                // A newer play() superseded this fade — abandon it.
+                if (crossfadeRamp != this) return;
                 step[0]++;
                 float progress = Math.min(1f, (float) step[0] / steps);
                 // Equal-Power Crossfade curve: constant acoustic energy (no volume dip!)
@@ -378,6 +408,12 @@ public class MediaPlaybackService extends Service {
                 } catch (Exception ignored) {}
 
                 if (step[0] >= steps) {
+                    crossfadeRamp = null;
+                    if (crossfadePlayer == null) {
+                        // Nothing left to promote (the fade was torn down under
+                        // us). Never null out a live `player`.
+                        return;
+                    }
                     // Promote the incoming player to primary.
                     ExoPlayer old = player;
                     player = crossfadePlayer;
@@ -401,6 +437,7 @@ public class MediaPlaybackService extends Service {
                 }
             }
         };
+        crossfadeRamp = ramp;
         mainHandler.postDelayed(ramp, interval);
     }
 
@@ -438,7 +475,26 @@ public class MediaPlaybackService extends Service {
     }
 
     // --------------------------------------------------------- advance / retry
-    private final java.util.Set<String> nativelyPlayedTrackIds = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+    // Bounded FIFO of ids native autoplay has already used. A plain HashSet that
+    // was cleared wholesale at 60 entries let the radio immediately re-serve the
+    // songs it had just played; LinkedHashSet in access order evicts one at a
+    // time so the recent history always stays intact.
+    private static final int MAX_NATIVE_PLAYED_IDS = 60;
+    private final java.util.Set<String> nativelyPlayedTrackIds =
+            java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<String>());
+
+    private void rememberNativelyPlayed(String id) {
+        if (id == null || id.isEmpty()) return;
+        synchronized (nativelyPlayedTrackIds) {
+            nativelyPlayedTrackIds.remove(id);
+            nativelyPlayedTrackIds.add(id);
+            java.util.Iterator<String> it = nativelyPlayedTrackIds.iterator();
+            while (nativelyPlayedTrackIds.size() > MAX_NATIVE_PLAYED_IDS && it.hasNext()) {
+                it.next();
+                it.remove();
+            }
+        }
+    }
 
     private void onTrackFinished(final boolean isError) {
         long played = currentTrackStartMs > 0
@@ -513,7 +569,7 @@ public class MediaPlaybackService extends Service {
                 try {
                     if (currentUrl == null) return;
                     final String shortIdStr = shortId(currentUrl);
-                    nativelyPlayedTrackIds.add(shortIdStr);
+                    rememberNativelyPlayed(shortIdStr);
                     String u = "http://127.0.0.1:5000/api/radio?id=" + java.net.URLEncoder.encode(shortIdStr, "UTF-8");
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
                     conn.setConnectTimeout(4000);
@@ -549,10 +605,7 @@ public class MediaPlaybackService extends Service {
 
                         if (objToPlay != null) {
                             final String nextId = objToPlay.optString("id");
-                            nativelyPlayedTrackIds.add(nextId);
-                            if (nativelyPlayedTrackIds.size() > 60) {
-                                nativelyPlayedTrackIds.clear();
-                            }
+                            rememberNativelyPlayed(nextId);
                             final String title = objToPlay.optString("title", "");
                             final String artist = objToPlay.optJSONObject("channel") != null ? objToPlay.optJSONObject("channel").optString("name", "") : objToPlay.optString("artist", "");
                             final String thumb = objToPlay.optString("thumbnail", "");
@@ -652,6 +705,7 @@ public class MediaPlaybackService extends Service {
 
     // ----------------------------------------------------------- cleanup
     private void releaseCrossfade() {
+        cancelCrossfadeRamp();
         if (crossfadePlayer != null) {
             try {
                 crossfadePlayer.release();
