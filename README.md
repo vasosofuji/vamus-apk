@@ -3,7 +3,7 @@
 <p align="center">
   <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="Vamus Logo" /><br><br>
   <a href="https://github.com/vasosofuji/vamus-apk/raw/main/vamus-latest.apk">
-    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.8-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
+    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.17-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
   </a>
 </p>
 
@@ -14,12 +14,13 @@
 ## ✨ Features
 
 - ⚡ **Instant Playback & Zero-Delay Scrubbing**: Powered by an ExoPlayer 250 MB LRU disk cache and backend stream URL pre-fetching, seeking through songs is near-instantaneous.
-- 🔁 **Full Queue & Repeat Control**: Support for interactive play queues, intelligent shuffle (consumes queue items without duplicates), Repeat One (`'one'`), and Repeat All (`'all'`).
+- 🔁 **Full Queue & Repeat Control**: Interactive play queue with drag-to-reorder, shuffle that never repeats a track within a pass, Repeat One (`'one'`), and Repeat All (`'all'`).
+- 👆 **Long-Press Track Menu**: Hold any track for Play, Add to Queue, Like, Add to Playlist, Download for Offline, and Go to Artist.
 - 🎨 **Carousel Media Player**: Fullscreen player with swipe carousel gesture controls and pre-loaded album cover artwork previews.
 - 🎤 **Synchronized Lyrics**: Real-time lyrics overlay for supported tracks, with a plain-lyrics fallback when no synced version exists.
 - ✈️ **Offline Downloads**: Save tracks to device storage for travel and play them with no connection, managed from a dedicated Offline Downloads screen.
 - 👉 **Swipe to Queue**: Swipe a track row to the right to drop it straight into the play queue.
-- 🖌️ **Custom Themes & Wallpapers**: Personalized themes (Electric Amber, Cyberpunk Neon, Emerald, Spotify Dark), custom color pickers, adjustable glassmorphism blur, and custom background wallpapers.
+- 🖌️ **Custom Themes & Wallpapers**: Six built-in themes (Vamus Dark, OLED Black, Sunset Crimson, Lavender Dream, Emerald Forest, Electric Amber), a full custom color palette with a color wheel, adjustable glassmorphism blur, and custom background wallpapers.
 - 📦 **Data Backup & Restore**: One-click JSON Export & Import inside Settings to safeguard your playlists, liked songs, and settings.
 - 🤖 **Optional AI Recommendations**: Opt-in Google Gemini API key integration for AI-curated music recommendations based on your listening history.
 - 🛠️ **Developer Options**: Opt-in floating diagnostic button (`🐞`) and real-time logging panel for debugging.
@@ -42,14 +43,25 @@ Use the bottom navigation bar to switch between main views:
 - **Repeat Modes**: Tap the Repeat button (`🔁`) to cycle between:
   - **Repeat Off (`none`)**: Plays through the queue once, then triggers auto-radio.
   - **Repeat All (`all`)**: Loops the queue or playlist infinitely.
-  - **Repeat One (`one`)**: Continuously replays the current track until toggled off.
+  - **Repeat One (`one`)**: Replays the current track when it ends. The Next
+    button still moves on to the following track.
+
+> [!TIP]
+> Starting a song from the middle of a playlist continues with the tracks that
+> follow it. Tapping a one-off song (a search result, a recommendation) plays
+> just that song without pulling the surrounding list into your queue.
 
 ### 3. Creating & Managing Playlists
 1. Go to **Library** → **Playlists** → **Create New Playlist**.
-2. To add songs: tap the `⋮` menu on any track card or row and select **Add to Playlist**.
+2. To add songs: press and hold any track row and choose **Add to Playlist**.
 3. Customize playlist cover images, colors, and descriptions anytime.
 
-### 4. Backing Up & Restoring Your Data
+### 4. Track Actions (Long Press)
+Press and hold any track row or Recently Played card to open its context menu:
+**Play Song**, **Add to Queue**, **Like Song**, **Add to Playlist**,
+**Download for Offline**, and **Go to Artist** where available.
+
+### 5. Backing Up & Restoring Your Data
 To ensure you never lose your playlists or liked songs:
 1. Go to **Settings** → **Data Management & Danger Zone**.
 2. Tap **📥 Export Backup** to download a `vamus_backup_YYYY-MM-DD.json` file.
