@@ -984,21 +984,33 @@ function setupSwipeToQueue() {
 }
 
 function addToPlayerQueue(track) {
-    if (!Store.currentTrack || !Store.isPlaying) {
+    if (!track || !track.id) return;
+
+    // Only take over playback when nothing is loaded at all. Keying off
+    // isPlaying meant that queueing a song while paused jumped straight to it
+    // and threw away whatever was cued up.
+    if (!Store.currentTrack) {
         Player.playTrack(track);
         showToast(`Playing ${track.title || 'song'}`);
-    } else {
-        // Prevent duplicate entries
-        Store.queue = (Store.queue || []).filter(t => t.id !== track.id);
-        if (Store.currentTrack && Store.currentTrack.id === track.id) {
-            showToast(`Already playing ${track.title || 'song'}`);
-            return;
-        }
-        Store.queue = [...Store.queue, track];
-        Store.emit('queueChanged');
-        showToast(`Added to Queue`);
-        Player._pushNextTrackToNative();
+        return;
     }
+
+    if (Store.currentTrack.id === track.id) {
+        showToast(`Already playing ${track.title || 'song'}`);
+        return;
+    }
+
+    // Prevent duplicate entries
+    Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
+    Store.queue = [...Store.queue, track];
+    // Keep it in the remembered context too, so a Repeat All lap doesn't drop
+    // a track the user explicitly queued.
+    if (!(Store.originalQueue || []).some(t => t && t.id === track.id)) {
+        Store.originalQueue = [...(Store.originalQueue || []), track];
+    }
+    Store.emit('queueChanged');
+    showToast('Added to Queue');
+    Player._pushNextTrackToNative();
 }
 
 // `type` is one of 'info' | 'success' | 'error'. Several callers already passed

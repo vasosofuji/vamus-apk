@@ -277,9 +277,28 @@ const Store = {
         this._persistToBackend();
     },
     
+    // id lookups for likedSongs / downloadedTracks.
+    //
+    // Both were linear `.some()` scans, and both are called per rendered row
+    // and once per track when the queue is mirrored to native — so a large
+    // library turned every render and every track change into tens of
+    // thousands of string comparisons. The index rebuilds itself whenever the
+    // array is replaced or changes length, so callers can keep assigning these
+    // lists freely without remembering to invalidate anything.
+    _idIndex(key) {
+        const list = this[key] || [];
+        const cache = this._idCaches || (this._idCaches = {});
+        const hit = cache[key];
+        if (hit && hit.src === list && hit.len === list.length) return hit.ids;
+        const ids = new Set();
+        for (const t of list) if (t && t.id) ids.add(t.id);
+        cache[key] = { src: list, len: list.length, ids };
+        return ids;
+    },
+
     // Liked songs
     isLiked(trackId) {
-        return this.likedSongs.some(t => t.id === trackId);
+        return this._idIndex('likedSongs').has(trackId);
     },
     toggleLike(track) {
         if (!track || !track.id) return;
@@ -355,7 +374,7 @@ const Store = {
         }
     },
     isDownloaded(trackId) {
-        return this.downloadedTracks.some(t => t.id === trackId);
+        return this._idIndex('downloadedTracks').has(trackId);
     },
     isDownloading(trackId) {
         return this.downloadingIds.has(trackId);
@@ -392,6 +411,8 @@ const Store = {
             if (data.ok && data.track) {
                 const existingIdx = this.downloadedTracks.findIndex(t => t.id === track.id);
                 if (existingIdx >= 0) {
+                    // In-place swap of an entry with the same id, so the id set
+                    // _idIndex caches is unchanged and needs no invalidation.
                     this.downloadedTracks[existingIdx] = data.track;
                 } else {
                     this.downloadedTracks = [data.track, ...this.downloadedTracks];

@@ -179,7 +179,9 @@ a { color: inherit; text-decoration: none; }
 
 /* Page header */
 .page-header {
-  padding: 1.5rem 0; margin-bottom: 1.5rem;
+  /* margin-bottom is deliberately 0; a later duplicate of this selector used to
+     override a 1.5rem value here, which made the spacing hard to trace. */
+  padding: 1.5rem 0; margin-bottom: 0;
 }
 .page-header h1 { font-size: 2rem; font-weight: 700; }
 .page-header p { color: var(--text-secondary); margin-top: 0.4rem; }
@@ -483,10 +485,6 @@ a { color: inherit; text-decoration: none; }
   line-height: 1.2;
   color: var(--text-primary);
 }
-.page-header {
-  margin-bottom: 0;
-}
-
 .quick-row {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.75rem; margin-bottom: 2rem;
@@ -613,15 +611,8 @@ a { color: inherit; text-decoration: none; }
   background: linear-gradient(135deg, #1e3a8a, #3b82f6);
   box-shadow: 0 8px 32px rgba(0,0,0,0.4); flex-shrink: 0; z-index: 1;
 }
-.playlist-custom-cover-img {
-  width: 160px;
-  height: 160px;
-  border-radius: var(--radius-md);
-  object-fit: cover;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  z-index: 1;
-  position: relative;
-}
+/* .playlist-custom-cover-img is defined once, further down — an earlier
+   duplicate here was fully overridden apart from `position`. */
 
 /* Apple 3D Touch Style Long-Press Context Menu */
 .touch-menu-overlay {
@@ -1207,17 +1198,11 @@ body.mobile-player-open .player-bar {
 .bottom-nav-item.active { color: var(--text-primary); }
 .bottom-nav-item:hover { color: var(--text-primary); }
 
-/* Modal */
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 300;
-  background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
-  display: flex; align-items: center; justify-content: center;
-}
-.modal-box {
-  background: var(--surface-color); border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg); padding: 2rem; min-width: 320px;
-  max-width: 90vw; animation: fadeUp 0.2s ease-out;
-}
+/* Modal — see the glassmorphic .modal-overlay / .modal-box rules further down,
+   which supersede this block entirely. The only property that used to survive
+   from here was a `min-width: 320px` on .modal-box, and it fought the inline
+   `width: 90%` several modals set: on a 320px-wide screen it forced the card
+   wider than its padded container and pushed content off-screen. */
 .modal-box h3 { margin-bottom: 1rem; }
 .modal-input {
   width: 100%; padding: 0.7rem 1rem; background: rgba(255,255,255,0.07);
@@ -2345,6 +2330,10 @@ body.glass-mode .settings-menu-card:hover {
   object-fit: cover;
   border-radius: var(--radius-lg);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  /* position is required for z-index to apply. It used to be inherited from an
+     earlier duplicate of this selector, so deleting that block would silently
+     have dropped the cover behind the playlist banner. */
+  position: relative;
   z-index: 1;
 }
 

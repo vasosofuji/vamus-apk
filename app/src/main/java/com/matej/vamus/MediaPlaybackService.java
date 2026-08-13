@@ -73,10 +73,14 @@ public class MediaPlaybackService extends Service {
     private ExoPlayer player;
     private ExoPlayer crossfadePlayer;
     private Player.Listener crossfadeListener;
-    // The in-flight crossfade volume ramp. It has to be cancellable: it used to
-    // keep running after a new track was started mid-fade and, on its final
-    // step, promoted an already-released crossfadePlayer (null) to `player` —
-    // which silently killed playback until the user tapped something.
+    // The in-flight crossfade volume ramp, non-null only while a fade is
+    // actually running. It has to be cancellable: it used to keep going after a
+    // new track was started mid-fade and, on its final step, promoted an
+    // already-released crossfadePlayer (null) to `player`, which silently
+    // killed playback until the user tapped something. It doubles as the signal
+    // that the incoming player is audible — before the ramp starts,
+    // crossfadePlayer exists but is still silent — so the position ticker uses
+    // it to decide which player to report.
     private Runnable crossfadeRamp;
     private float currentVolume = 1.0f;
 
@@ -284,8 +288,20 @@ public class MediaPlaybackService extends Service {
                     dbg("PREPARED -> playing (dur=" + (dur == C.TIME_UNSET ? -1 : dur) + "ms)");
                 }
             } else if (state == Player.STATE_ENDED) {
-                dbg("onCompletion");
-                onTrackFinished(false);
+                // Distinguish a track that genuinely reached its end from a
+                // stream that died early and also reports ENDED. Without this,
+                // any track shorter than the 5s "really played" threshold was
+                // treated as a failure and replayed up to three times.
+                boolean nearEnd = false;
+                try {
+                    if (player != null) {
+                        long dur = player.getDuration();
+                        long pos = player.getCurrentPosition();
+                        nearEnd = dur != C.TIME_UNSET && dur > 0 && pos >= dur - 1500;
+                    }
+                } catch (Exception ignored) {}
+                dbg("onCompletion nearEnd=" + nearEnd);
+                onTrackFinished(false, nearEnd);
             }
         }
 
@@ -293,7 +309,7 @@ public class MediaPlaybackService extends Service {
         public void onPlayerError(PlaybackException error) {
             dbg("ExoPlayer error: " + error.getErrorCodeName() + " (" + error.errorCode + ") "
                     + (error.getMessage() != null ? error.getMessage() : ""));
-            onTrackFinished(true);
+            onTrackFinished(true, false);
         }
     };
 
@@ -339,7 +355,7 @@ public class MediaPlaybackService extends Service {
             startPositionTicker();
         } catch (Exception e) {
             dbg("startPlayback EXCEPTION: " + e);
-            onTrackFinished(true);
+            onTrackFinished(true, false);
         }
     }
 
@@ -366,7 +382,7 @@ public class MediaPlaybackService extends Service {
                 @Override
                 public void onPlayerError(PlaybackException error) {
                     dbg("crossfade error: " + error.getErrorCodeName());
-                    onTrackFinished(true);
+                    onTrackFinished(true, false);
                 }
             };
             crossfadePlayer.addListener(crossfadeListener);
@@ -447,9 +463,11 @@ public class MediaPlaybackService extends Service {
             @Override
             public void run() {
                 try {
-                    if (player != null) {
-                        long pos = player.getCurrentPosition();
-                        long dur = player.getDuration();
+                    ExoPlayer source = (crossfadeRamp != null && crossfadePlayer != null)
+                            ? crossfadePlayer : player;
+                    if (source != null) {
+                        long pos = source.getCurrentPosition();
+                        long dur = source.getDuration();
                         cachedPositionMs = pos < 0 ? 0 : pos;
                         long validDur = (dur == C.TIME_UNSET || dur < 0) ? 0 : dur;
                         if (validDur > 0 && validDur != cachedDurationMs) {
@@ -496,17 +514,18 @@ public class MediaPlaybackService extends Service {
         }
     }
 
-    private void onTrackFinished(final boolean isError) {
+    private void onTrackFinished(final boolean isError, final boolean reachedEnd) {
         long played = currentTrackStartMs > 0
                 ? (System.currentTimeMillis() - currentTrackStartMs)
                 : 0;
         currentTrackStartMs = 0;
 
-        // If the track played for >= 5s, consider it finished so we advance
-        // to the next track rather than rewinding and retrying the same track from 0:00.
-        boolean reallyPlayed = played >= MIN_PLAYED_MS_FOR_SUCCESS;
+        // Advance rather than rewind when the track actually reached its end, or
+        // when it played long enough that a failure is unlikely to be a bad
+        // stream URL.
+        boolean reallyPlayed = reachedEnd || played >= MIN_PLAYED_MS_FOR_SUCCESS;
         dbg("finished isError=" + isError + " played=" + played + "ms"
-                + " reallyPlayed=" + reallyPlayed
+                + " reachedEnd=" + reachedEnd + " reallyPlayed=" + reallyPlayed
                 + " sameRetry=" + sameTrackRetries + " skips=" + consecutiveSkips);
 
         if (reallyPlayed) {
@@ -545,21 +564,67 @@ public class MediaPlaybackService extends Service {
 
     private void advanceToNext() {
         MainActivity activity = MainActivity.getInstance();
-        if (activity != null) {
-            NextTrackInfo next = activity.consumeNextTrackInfo();
-            if (next != null && next.streamUrl != null && !next.streamUrl.isEmpty()) {
-                dbg("advance -> native nextId=" + next.trackId);
-                activity.applyPendingNextMetadata(next);
-                startPlayback(next.streamUrl);
-                activity.triggerJsEvent("if (typeof Player !== 'undefined') { Player._onNativeAdvanced && Player._onNativeAdvanced(" + jsonQuote(next.trackId) + "); }");
-                return;
-            }
+        if (activity == null) return;
+
+        PlaybackQueue.Result result = activity.consumeNextTrackInfo();
+
+        if (result.outcome == PlaybackQueue.Outcome.TRACK && result.track != null
+                && !result.track.streamUrl.isEmpty()) {
+            dbg("advance -> native nextId=" + result.track.trackId);
+            rememberNativelyPlayed(result.track.trackId);
+            activity.applyPendingNextMetadata(result.track);
+            startPlayback(result.track.streamUrl);
+            notifyJsOfAdvance(result.track);
+            return;
+        }
+
+        if (result.outcome == PlaybackQueue.Outcome.STOP) {
+            // Autoplay is off and the queue is done. Stop cleanly rather than
+            // surprising the user with a song they never chose.
+            dbg("advance -> queue exhausted and autoplay off, stopping");
+            onPlaybackFinished();
+            return;
         }
 
         // When queue is empty and WebView JS may be frozen (screen off doze mode),
         // native Java background thread fetches the next radio track directly over HTTP!
         dbg("advance -> no pre-fetched native next, fetching radio in native Java background thread");
         fetchRadioAndPlayNatively();
+    }
+
+    /**
+     * Hands JS the whole track, not just its id. When native picks a song JS has
+     * never seen (its own radio fetch), an id alone could not be resolved, so JS
+     * silently kept the previous track as "current" — the UI, the queue and the
+     * notification then disagreed about what was playing.
+     */
+    private void notifyJsOfAdvance(PlaybackQueue.Track t) {
+        String json;
+        try {
+            json = new org.json.JSONObject()
+                    .put("id", t.trackId)
+                    .put("title", t.title)
+                    .put("artist", t.artist)
+                    .put("thumbnail", t.thumbnail)
+                    .toString();
+        } catch (org.json.JSONException e) {
+            json = "null";
+        }
+        notifyJs("_onNativeAdvanced", jsonQuote(t.trackId) + ", " + json);
+    }
+
+    private void onPlaybackFinished() {
+        pausePlayback();
+        notifyJs("_onPlaybackFinished", "");
+    }
+
+    /** Invokes Player.<fn>(args) in the WebView if the player is loaded. */
+    private void notifyJs(String fn, String args) {
+        MainActivity activity = MainActivity.getInstance();
+        if (activity == null) return;
+        activity.triggerJsEvent(
+                "if (typeof Player !== 'undefined' && Player." + fn + ") {"
+                + " Player." + fn + "(" + args + "); }");
     }
 
     private void fetchRadioAndPlayNatively() {
@@ -617,8 +682,10 @@ public class MediaPlaybackService extends Service {
                                     dbg("native radio advance -> id=" + nextId);
                                     MainActivity activity = MainActivity.getInstance();
                                     if (activity != null) {
-                                        activity.applyPendingNextMetadata(new NextTrackInfo(nextId, streamUrl, title, artist, thumb));
-                                        activity.triggerJsEvent("if (typeof Player !== 'undefined') { Player._onNativeAdvanced && Player._onNativeAdvanced(" + jsonQuote(nextId) + "); }");
+                                        PlaybackQueue.Track picked = new PlaybackQueue.Track(
+                                                nextId, streamUrl, title, artist, thumb);
+                                        activity.applyPendingNextMetadata(picked);
+                                        notifyJsOfAdvance(picked);
                                     }
                                     startPlayback(streamUrl);
                                 }
@@ -644,10 +711,7 @@ public class MediaPlaybackService extends Service {
 
     private void onPlaybackStalled() {
         dbg("STALLED (too many consecutive failures) — stopping");
-        MainActivity activity = MainActivity.getInstance();
-        if (activity == null) return;
-        activity.triggerJsEvent(
-                "if (typeof Player !== 'undefined' && Player._onPlaybackStalled) { Player._onPlaybackStalled(); }");
+        notifyJs("_onPlaybackStalled", "");
     }
 
     // ----------------------------------------------------------- transport
@@ -663,7 +727,16 @@ public class MediaPlaybackService extends Service {
     public void resumePlayback() {
         runOnPlayer(new Runnable() {
             @Override public void run() {
-                if (player != null) player.setPlayWhenReady(true);
+                if (player != null) {
+                    // A track that ran to its end leaves ExoPlayer parked in
+                    // STATE_ENDED, where playWhenReady alone cannot restart it.
+                    // Without the seek, Play was a silent no-op after the queue
+                    // finished with Autoplay off.
+                    if (player.getPlaybackState() == Player.STATE_ENDED) {
+                        player.seekTo(0);
+                    }
+                    player.setPlayWhenReady(true);
+                }
                 if (crossfadePlayer != null) crossfadePlayer.setPlayWhenReady(true);
             }
         });
@@ -764,20 +837,4 @@ public class MediaPlaybackService extends Service {
         return sb.toString();
     }
 
-    /** Simple container for a pre-computed next track. */
-    public static class NextTrackInfo {
-        public final String trackId;
-        public final String streamUrl;
-        public final String title;
-        public final String artist;
-        public final String thumbnail;
-
-        public NextTrackInfo(String trackId, String streamUrl, String title, String artist, String thumbnail) {
-            this.trackId = trackId;
-            this.streamUrl = streamUrl;
-            this.title = title;
-            this.artist = artist;
-            this.thumbnail = thumbnail;
-        }
-    }
 }

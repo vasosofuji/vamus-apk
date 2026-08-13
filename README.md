@@ -3,7 +3,7 @@
 <p align="center">
   <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="Vamus Logo" /><br><br>
   <a href="https://github.com/vasosofuji/vamus-apk/raw/main/vamus-latest.apk">
-    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.17-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
+    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.18-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
   </a>
 </p>
 

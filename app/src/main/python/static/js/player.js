@@ -103,15 +103,14 @@ const Player = {
         const curId = Store.currentTrack.id;
         let upcoming = (Store.queue || []).filter(t => t && t.id && t.id !== curId);
 
-        // Queue exhausted but Repeat All is on — wrap back to the top of the
-        // context this queue came from.
-        if (upcoming.length === 0 && Store.repeat === 'all' &&
-            Store.originalQueue && Store.originalQueue.length > 1) {
-            upcoming = Store.originalQueue.filter(t => t && t.id && t.id !== curId);
-            if (commit && upcoming.length > 0) {
-                Store.queue = upcoming;
-                Store.emit('queueChanged');
-            }
+        // Queue exhausted but Repeat All is on — wrap around the context.
+        if (upcoming.length === 0 && Store.repeat === 'all') {
+            const wrap = this._contextWrapOrder(curId);
+            if (wrap.length === 0) return null;
+            if (commit) this._commitContextWrap(curId);
+            upcoming = wrap.filter(t => t.id !== curId);
+            // A single-track context: Repeat All behaves like Repeat One.
+            if (upcoming.length === 0) return { track: wrap[0] };
         }
 
         if (upcoming.length === 0) return null;
@@ -128,6 +127,127 @@ const Player = {
             return { track: pick };
         }
         return { track: upcoming[0] };
+    },
+
+    // The playback context — the list Repeat All wraps around — with any
+    // duplicate or malformed entries dropped. Store.originalQueue is written
+    // from several places, so every reader normalises through here.
+    _contextTracks() {
+        const seen = new Set();
+        return (Store.originalQueue || []).filter(t => {
+            if (!t || !t.id || seen.has(t.id)) return false;
+            seen.add(t.id);
+            return true;
+        });
+    },
+
+    // Repeat All wrap order: everything after the current track, then back
+    // round to and including it. Re-filtering the raw context instead meant the
+    // "next" was always whichever track sat at the top of the list, so after one
+    // lap playback ping-ponged between the first two entries and the rest of the
+    // list was never reached again. Mirrors PlaybackQueue.computeNext().
+    _contextWrapOrder(curId) {
+        const ctx = this._contextTracks();
+        if (ctx.length === 0) return [];
+        const i = ctx.findIndex(t => t.id === curId);
+        return i >= 0 ? ctx.slice(i + 1).concat(ctx.slice(0, i + 1)) : ctx.slice();
+    },
+
+    // Finds the fullest record we hold for a track id. Ordered by how complete
+    // the record is, because the loser gets written into Recents: queue and
+    // context entries are full API objects, whereas the payload native sends
+    // carries no duration. Add new sources to this list rather than to the
+    // callers.
+    _findKnownTrack(id) {
+        if (!id) return null;
+        const auto = Store.nextAutoTrack;
+        if (auto && auto.id === id) return auto;
+        const sources = [Store.queue, Store.originalQueue, Store.history, Store.recentlyPlayed];
+        for (const list of sources) {
+            const hit = (list || []).find(t => t && t.id === id);
+            if (hit) return hit;
+        }
+        return null;
+    },
+
+    // Last resort: build a track from what native told us. Degraded (no
+    // duration), so only used when nothing better is on hand.
+    _trackFromNativeInfo(info, expectedId) {
+        if (!info || !info.id || info.id !== expectedId) return null;
+        return {
+            id: info.id,
+            title: info.title || '',
+            thumbnail: info.thumbnail || '',
+            channel: { name: info.artist || '' },
+            durationInSec: 0,
+        };
+    },
+
+    // The five fields native needs to describe a track.
+    _nativeTrackFields(t) {
+        return {
+            id: t.id || '',
+            streamUrl: this._streamUrlFor(t),
+            title: t.title || '',
+            artist: (t.channel && t.channel.name) || t.artist || 'Unknown',
+            thumbnail: t.thumbnail || '',
+        };
+    },
+
+    _setNativeNextTrack(t) {
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
+            const n = this._nativeTrackFields(t);
+            window.AndroidMediaSession.setNextTrackInfo(n.id, n.streamUrl, n.title, n.artist, n.thumbnail);
+        }
+    },
+
+    // Mirror the playback context to native so it can keep advancing correctly
+    // while this WebView is throttled with the screen off.
+    //
+    // This runs on every track change, every queue edit and every
+    // shuffle/repeat toggle. Serialising a 500-track "Play All" context each
+    // time meant ~150KB of JSON built on the UI thread, marshalled across the
+    // bridge and re-parsed into objects in Java — a frame hitch at exactly the
+    // moment the UI is busiest. The context is byte-identical for a whole
+    // listening session, so both payloads are compared against the last push
+    // and the bridge call is skipped outright when nothing changed.
+    _syncPlaybackContextToNative() {
+        const ams = window.AndroidMediaSession;
+        if (!ams || typeof ams.setPlaybackContext !== 'function') return;
+
+        const curId = (Store.currentTrack && Store.currentTrack.id) || '';
+        const upcomingJson = JSON.stringify(
+            (Store.queue || [])
+                .filter(t => t && t.id && t.id !== curId)
+                .map(t => this._nativeTrackFields(t)));
+        // The full context, not just what's left: native Repeat All wraps
+        // around this. Sending only the shrinking queue made each lap shorter
+        // than the last until it looped one track forever.
+        const contextJson = JSON.stringify(
+            this._contextTracks().map(t => this._nativeTrackFields(t)));
+        const repeat = Store.repeat || 'none';
+        const shuffle = !!Store.shuffle;
+        const autoplay = !!Store.autoplayEnabled;
+
+        const last = this._lastNativeContext;
+        if (last && last.upcomingJson === upcomingJson && last.contextJson === contextJson &&
+            last.curId === curId && last.repeat === repeat &&
+            last.shuffle === shuffle && last.autoplay === autoplay) {
+            return;
+        }
+        this._lastNativeContext = { upcomingJson, contextJson, curId, repeat, shuffle, autoplay };
+        ams.setPlaybackContext(upcomingJson, contextJson, curId, repeat, shuffle, autoplay);
+    },
+
+    // Refill an exhausted queue from the context. Both the JS-driven path
+    // (_resolveNextTrack) and the native-driven one (_onNativeAdvanced) need
+    // this, so the semantics live in one place.
+    _commitContextWrap(curId) {
+        const wrap = this._contextWrapOrder(curId);
+        if (wrap.length === 0) return false;
+        Store.queue = wrap;
+        Store.emit('queueChanged');
+        return true;
     },
 
     // Applies a new playback context. `newQueue` is the full list the user
@@ -235,6 +355,12 @@ const Player = {
         Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
         if (!Store.originalQueue || !Store.originalQueue.some(t => t && t.id === track.id)) {
             Store.originalQueue = [track, ...Store.queue];
+        }
+        // Same Repeat All refill the other two "become the current track" paths
+        // do. Crossfade was the one that never got it, so with crossfade on, a
+        // looping playlist stopped looping once the queue drained.
+        if (Store.queue.length === 0 && Store.repeat === 'all') {
+            this._commitContextWrap(track.id);
         }
         Store.addToRecent(track);
         Store.emit('queueChanged');
@@ -674,15 +800,7 @@ const Player = {
             this._autoRadioSeedId = null;
             const t = next.track;
             if (t.thumbnail) preloadImage(t.thumbnail);
-            if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-                window.AndroidMediaSession.setNextTrackInfo(
-                    t.id || '',
-                    this._streamUrlFor(t),
-                    t.title || '',
-                    (t.channel && t.channel.name) || t.artist || 'Unknown',
-                    t.thumbnail || ''
-                );
-            }
+            this._setNativeNextTrack(t);
         } else if (Store.autoplayEnabled && Store.currentTrack &&
                    !this._prefetchingRadio &&
                    !(Store.nextAutoTrack && this._autoRadioSeedId === Store.currentTrack.id)) {
@@ -725,15 +843,7 @@ const Player = {
                     // Pre-fetch stream URL for auto-radio track
                     fetch(getApiUrl('/api/prefetch?ids=' + firstNew.id)).catch(() => {});
 
-                    if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setNextTrackInfo === 'function') {
-                        window.AndroidMediaSession.setNextTrackInfo(
-                            firstNew.id || '',
-                            this._streamUrlFor(firstNew),
-                            firstNew.title || '',
-                            (firstNew.channel && firstNew.channel.name) || firstNew.artist || 'Unknown',
-                            firstNew.thumbnail || ''
-                        );
-                    }
+                    this._setNativeNextTrack(firstNew);
 
                     // Update mobile player overlay carousel next slide if open
                     const overlay = document.getElementById('mobile-player-overlay');
@@ -759,25 +869,7 @@ const Player = {
             if (prev && prev.thumbnail) preloadImage(prev.thumbnail);
         }
 
-        // Also push the full queue so native can keep advancing indefinitely
-        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.setPlaybackContext === 'function') {
-            const curId = (Store.currentTrack && Store.currentTrack.id) || '';
-            const mapped = (Store.queue || [])
-                .filter(t => t && t.id && t.id !== curId)
-                .map(t => ({
-                    id: t.id,
-                    title: t.title || '',
-                    artist: (t.channel && t.channel.name) || t.artist || 'Unknown',
-                    thumbnail: t.thumbnail || '',
-                    streamUrl: this._streamUrlFor(t),
-                }));
-            window.AndroidMediaSession.setPlaybackContext(
-                JSON.stringify(mapped),
-                (Store.currentTrack && Store.currentTrack.id) || '',
-                Store.repeat || 'none',
-                !!Store.shuffle
-            );
-        }
+        this._syncPlaybackContextToNative();
 
         // Warm the tracks that actually come next. Store.queue already holds
         // only what is still upcoming, so its head is the right thing to warm;
@@ -805,16 +897,15 @@ const Player = {
     },
 
     // Native advanced on its own (screen off / JS throttled) — mirror it in JS.
-    _onNativeAdvanced(nextTrackId) {
+    // `info` carries the track native actually started, so a song JS has never
+    // seen (native's own radio pick) can still be adopted. Without it JS kept
+    // the previous track as "current" and the UI, queue and notification all
+    // disagreed about what was playing.
+    _onNativeAdvanced(nextTrackId, info) {
         if (!nextTrackId) return;
         if (Store.currentTrack && Store.currentTrack.id === nextTrackId) return;
 
-        let track = (Store.queue || []).find(t => t && t.id === nextTrackId);
-        if (!track && Store.nextAutoTrack && Store.nextAutoTrack.id === nextTrackId) {
-            // Only adopt the pre-fetched radio track when it really is the one
-            // native started; otherwise we'd mislabel the song now playing.
-            track = Store.nextAutoTrack;
-        }
+        const track = this._findKnownTrack(nextTrackId) || this._trackFromNativeInfo(info, nextTrackId);
         if (!track) return;
 
         if (Store.nextAutoTrack && Store.nextAutoTrack.id === track.id) {
@@ -827,6 +918,12 @@ const Player = {
         Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
         Store.currentTrack = track;
         Store.isPlaying = true;
+        // Native drives playback through this path, so the Repeat All wrap has
+        // to be committed here too — peeking alone left Store.queue empty and
+        // the list never progressed past its first two tracks.
+        if (Store.queue.length === 0 && Store.repeat === 'all') {
+            this._commitContextWrap(track.id);
+        }
         // Without this the radio ring buffer never learned about tracks native
         // played, so it happily served them again a few songs later.
         this._recordPlayedTrack(track.id);
@@ -837,6 +934,27 @@ const Player = {
         this.updatePlayerUI();
         this._pushNextTrackToNative();
         Store.emit('trackChanged');
+    },
+
+    // Native ran out of queue with Autoplay off. Settle into a paused state at
+    // the end of the last track instead of leaving the UI claiming it's playing.
+    _onPlaybackFinished() {
+        Store.isPlaying = false;
+        Store.nextAutoTrack = null;
+        this._autoRadioSeedId = null;
+        if (window.AndroidMediaSession &&
+            typeof window.AndroidMediaSession.updatePlaybackState === 'function') {
+            // Report where playback actually stopped. Sending 0 snapped the
+            // lock-screen scrubber to the start, and the next progress tick
+            // snapped it straight back to the end.
+            const pos = typeof window.AndroidMediaSession.getCurrentPosition === 'function'
+                ? Math.round(window.AndroidMediaSession.getCurrentPosition())
+                : 0;
+            window.AndroidMediaSession.updatePlaybackState(false, pos);
+        }
+        this.updatePlayButton();
+        this.updatePlayerUI();
+        Store.emit('playerUpdate');
     },
 
     _onPlaybackStalled() {

@@ -39,113 +39,40 @@ public class MainActivity extends BridgeActivity {
     private Bitmap currentArtwork = null;
     private Notification lastNotification;
 
-    // Pre-computed next-track info pushed from JS. The service consumes this
-    // when the current track ends so autoplay works even if the WebView JS
-    // is throttled (screen off / activity backgrounded).
-    private volatile MediaPlaybackService.NextTrackInfo pendingNextTrack;
-
-    // Full native mirror of the JS queue so native can keep advancing while
-    // the WebView JS is throttled.
-    private final java.util.List<MediaPlaybackService.NextTrackInfo> nativeQueue = new java.util.ArrayList<>();
-    private final java.util.List<MediaPlaybackService.NextTrackInfo> fullNativeQueueBackup = new java.util.ArrayList<>();
-    private volatile MediaPlaybackService.NextTrackInfo currentNativeTrackInfo = null;
-    private volatile String nativeCurrentTrackId = null;
-    private volatile String nativeRepeat = "none"; // "none" | "all" | "one"
-    private volatile boolean nativeShuffle = false;
+    // Native mirror of the JS queue, so playback keeps advancing correctly
+    // while the WebView JS is throttled (screen off / activity backgrounded).
+    // The advance logic lives in PlaybackQueue so it can be tested off-device.
+    private final PlaybackQueue playbackQueue = new PlaybackQueue();
 
     public Notification getLastNotification() {
         return lastNotification;
     }
 
-    public MediaPlaybackService.NextTrackInfo consumeNextTrackInfo() {
-        MediaPlaybackService.NextTrackInfo n = pendingNextTrack;
-        pendingNextTrack = null;
-        if (n != null) {
-            currentNativeTrackInfo = n;
-            nativeCurrentTrackId = n.trackId;
-            return n;
-        }
-        // Fall back to computing from the native queue mirror.
-        return computeNextFromNativeQueue();
+    public PlaybackQueue.Result consumeNextTrackInfo() {
+        return playbackQueue.consumeNext();
     }
 
-    private synchronized MediaPlaybackService.NextTrackInfo computeNextFromNativeQueue() {
-        if ("one".equals(nativeRepeat)) {
-            if (currentNativeTrackInfo != null) return currentNativeTrackInfo;
-            if (nativeCurrentTrackId != null) {
-                for (MediaPlaybackService.NextTrackInfo t : fullNativeQueueBackup) {
-                    if (nativeCurrentTrackId.equals(t.trackId)) return t;
-                }
-            }
-            return null;
-        }
-
-        if (nativeQueue.isEmpty()) {
-            if ("all".equals(nativeRepeat) && !fullNativeQueueBackup.isEmpty()) {
-                nativeQueue.addAll(fullNativeQueueBackup);
-            } else {
-                return null;
-            }
-        }
-
-        if (nativeShuffle) {
-            java.util.List<MediaPlaybackService.NextTrackInfo> others = new java.util.ArrayList<>();
-            for (MediaPlaybackService.NextTrackInfo t : nativeQueue) {
-                if (nativeCurrentTrackId == null || !t.trackId.equals(nativeCurrentTrackId)) others.add(t);
-            }
-            if (others.isEmpty()) others.addAll(nativeQueue);
-            if (others.isEmpty()) return null;
-
-            MediaPlaybackService.NextTrackInfo pick = others.get(
-                    new java.util.Random().nextInt(others.size()));
-            nativeCurrentTrackId = pick.trackId;
-            currentNativeTrackInfo = pick;
-            nativeQueue.remove(pick);
-            return pick;
-        }
-
-        MediaPlaybackService.NextTrackInfo pick = nativeQueue.remove(0);
-        nativeCurrentTrackId = pick.trackId;
-        currentNativeTrackInfo = pick;
-        return pick;
-    }
-
-    public synchronized void setNativeQueue(String queueJson, String currentTrackId,
-                                            String repeat, boolean shuffle) {
-        nativeQueue.clear();
-        fullNativeQueueBackup.clear();
-        // The JS queue never contains the track that is currently playing, so
-        // the loop below can't refresh currentNativeTrackInfo. Left stale, it
-        // pointed at a *previous* song and Repeat One replayed that instead of
-        // the current one.
-        if (currentTrackId == null || currentNativeTrackInfo == null
-                || !currentTrackId.equals(currentNativeTrackInfo.trackId)) {
-            currentNativeTrackInfo = null;
-        }
-        nativeCurrentTrackId = currentTrackId;
-        nativeRepeat = repeat != null ? repeat : "none";
-        nativeShuffle = shuffle;
-        if (queueJson == null || queueJson.isEmpty()) return;
+    private static java.util.List<PlaybackQueue.Track> parseTracks(String json) {
+        java.util.List<PlaybackQueue.Track> out = new java.util.ArrayList<>();
+        if (json == null || json.isEmpty()) return out;
         try {
-            org.json.JSONArray arr = new org.json.JSONArray(queueJson);
+            org.json.JSONArray arr = new org.json.JSONArray(json);
             for (int i = 0; i < arr.length(); i++) {
                 org.json.JSONObject o = arr.getJSONObject(i);
-                MediaPlaybackService.NextTrackInfo info = new MediaPlaybackService.NextTrackInfo(
-                        o.optString("id", ""),
+                String id = o.optString("id", "");
+                if (id.isEmpty()) continue;
+                out.add(new PlaybackQueue.Track(
+                        id,
                         o.optString("streamUrl", ""),
                         o.optString("title", ""),
                         o.optString("artist", ""),
                         o.optString("thumbnail", "")
-                );
-                nativeQueue.add(info);
-                fullNativeQueueBackup.add(info);
-                if (currentTrackId != null && currentTrackId.equals(info.trackId)) {
-                    currentNativeTrackInfo = info;
-                }
+                ));
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
+        return out;
     }
 
     public static MainActivity getInstance() {
@@ -384,27 +311,34 @@ public class MainActivity extends BridgeActivity {
             public void setNextTrackInfo(final String trackId, final String streamUrl,
                                         final String title, final String artist,
                                         final String thumbnail) {
-                if (streamUrl == null || streamUrl.isEmpty()) {
-                    pendingNextTrack = null;
-                } else {
-                    pendingNextTrack = new MediaPlaybackService.NextTrackInfo(
-                            trackId, streamUrl, title, artist, thumbnail);
-                }
+                // setPendingNext treats a blank stream URL as "clear".
+                playbackQueue.setPendingNext(new PlaybackQueue.Track(
+                        trackId, streamUrl, title, artist, thumbnail));
             }
 
             /**
-             * Pushes the full playback context (queue + current index + repeat
-             * mode + shuffle) so native can keep advancing on its own for as
-             * many tracks as the queue holds, even while the WebView JS is
-             * frozen (screen off). `queueJson` is a JSON array of tracks
-             * with fields {id, title, artist, thumbnail, streamUrl}.
+             * Pushes the full playback context so native can keep advancing on
+             * its own even while the WebView JS is frozen (screen off).
+             *
+             * `queueJson`   — tracks still to play, current excluded.
+             * `contextJson` — the complete list the queue came from. Repeat All
+             *                 wraps around this; passing only the shrinking
+             *                 upcoming queue made each lap shorter than the last
+             *                 until it looped a single track forever.
+             * `autoplay`    — mirrors the user's Autoplay setting, so native
+             *                 stops instead of inventing a song when it is off.
+             *
+             * Both arrays are JSON: {id, title, artist, thumbnail, streamUrl}.
              */
             @JavascriptInterface
             public void setPlaybackContext(final String queueJson,
+                                          final String contextJson,
                                           final String currentTrackId,
                                           final String repeat,
-                                          final boolean shuffle) {
-                setNativeQueue(queueJson, currentTrackId, repeat, shuffle);
+                                          final boolean shuffle,
+                                          final boolean autoplay) {
+                playbackQueue.setContext(parseTracks(queueJson), parseTracks(contextJson),
+                        currentTrackId, repeat, shuffle, autoplay);
             }
 
             @JavascriptInterface
@@ -567,10 +501,9 @@ public class MainActivity extends BridgeActivity {
      * (screen-off autoplay path). Also drives the notification/mediaSession
      * so lock-screen controls immediately show the right thing.
      */
-    public void applyPendingNextMetadata(final MediaPlaybackService.NextTrackInfo next) {
+    public void applyPendingNextMetadata(final PlaybackQueue.Track next) {
         if (next == null) return;
-        currentNativeTrackInfo = next;
-        nativeCurrentTrackId = next.trackId;
+        playbackQueue.adoptExternal(next);
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
