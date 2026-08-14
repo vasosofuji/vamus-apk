@@ -235,8 +235,14 @@ const Player = {
             last.shuffle === shuffle && last.autoplay === autoplay) {
             return;
         }
-        this._lastNativeContext = { upcomingJson, contextJson, curId, repeat, shuffle, autoplay };
-        ams.setPlaybackContext(upcomingJson, contextJson, curId, repeat, shuffle, autoplay);
+        const applied = ams.setPlaybackContext(
+            upcomingJson, contextJson, curId, repeat, shuffle, autoplay);
+        // Native drops the queue from a push whose current track is not the one
+        // it is playing. Caching a rejected push as delivered would suppress the
+        // retry and silently lose whatever queue edit it carried.
+        this._lastNativeContext = applied === false
+            ? null
+            : { upcomingJson, contextJson, curId, repeat, shuffle, autoplay };
     },
 
     // Refill an exhausted queue from the context. Both the JS-driven path
@@ -321,7 +327,7 @@ const Player = {
         const url = this._streamUrlFor(track);
 
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-            window.AndroidMediaSession.playUri(url, false, 0);
+            window.AndroidMediaSession.playUri(url, track.id, !!options.fromHistory, false, 0);
         } else {
             // Set audio source via Flask stream endpoint
             this.audio.src = url;
@@ -381,7 +387,7 @@ const Player = {
         this._isCrossfading = true;
         
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-            window.AndroidMediaSession.playUri(url, true, Math.round(effectiveCfDuration * 1000));
+            window.AndroidMediaSession.playUri(url, track.id, false, true, Math.round(effectiveCfDuration * 1000));
             setTimeout(() => {
                 this._isCrossfading = false;
             }, Math.round(effectiveCfDuration * 1000));
@@ -664,7 +670,7 @@ const Player = {
             if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
                 // Use the offline copy when there is one; the old code always
                 // hit /api/stream, so Repeat One broke with no connection.
-                window.AndroidMediaSession.playUri(this._streamUrlFor(Store.currentTrack), false, 0);
+                window.AndroidMediaSession.playUri(this._streamUrlFor(Store.currentTrack), Store.currentTrack.id, false, false, 0);
             } else if (this.audio) {
                 this.audio.currentTime = 0;
                 this.audio.play().catch(e => console.error('Play error:', e));
@@ -696,7 +702,7 @@ const Player = {
             ? this._streamUrlFor(Store.currentTrack)
             : getApiUrl(`/api/stream?id=${Store.currentTrack.id}&t=${Date.now()}`);
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.playUri === 'function') {
-            window.AndroidMediaSession.playUri(retryUrl, false, 0);
+            window.AndroidMediaSession.playUri(retryUrl, Store.currentTrack.id, false, false, 0);
         } else if (this.audio) {
             this.audio.src = retryUrl;
             this.audio.play().catch(() => this.playNext());
@@ -936,6 +942,42 @@ const Player = {
         Store.emit('trackChanged');
     },
 
+    // Native went *backwards* (Previous on a notification, lock screen or car
+    // head unit). Mirrors _onNativeAdvanced but pops history instead of pushing
+    // to it, and puts the track we left back at the head of the queue.
+    _onNativeWentBack(trackId, info) {
+        if (!trackId) return;
+        if (Store.currentTrack && Store.currentTrack.id === trackId) return;
+
+        const track = this._findKnownTrack(trackId) || this._trackFromNativeInfo(info, trackId);
+        if (!track) return;
+
+        const leaving = Store.currentTrack;
+        Store.history = (Store.history || []).filter(t => t && t.id !== track.id);
+        Store.currentTrack = track;
+        Store.isPlaying = true;
+        this._shuffleNextId = null;
+        Store.queue = (Store.queue || []).filter(t => t && t.id !== track.id);
+        if (leaving && leaving.id !== track.id &&
+            !Store.queue.some(t => t && t.id === leaving.id)) {
+            Store.queue = [leaving, ...Store.queue];
+        }
+        Store.addToRecent(track);
+        Store.emit('queueChanged');
+        this.showPlayerBar();
+        this.updatePlayerUI();
+        this._pushNextTrackToNative();
+        Store.emit('trackChanged');
+    },
+
+    // Native handled a play/pause from outside the app; just mirror the state.
+    _onNativePlaybackToggled(isPlaying) {
+        Store.isPlaying = !!isPlaying;
+        this.updatePlayButton();
+        this.updatePlayerUI();
+        Store.emit('playerUpdate');
+    },
+
     // Native ran out of queue with Autoplay off. Settle into a paused state at
     // the end of the last track instead of leaving the UI claiming it's playing.
     _onPlaybackFinished() {
@@ -976,6 +1018,17 @@ const Player = {
         if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getCurrentPosition === 'function') {
             current = window.AndroidMediaSession.getCurrentPosition() / 1000;
             duration = window.AndroidMediaSession.getDuration() / 1000;
+            // Transport controls can pause or resume while this timer is
+            // throttled, so trust the player over our own last-known flag —
+            // otherwise the first tick after waking pushed a stale state and
+            // the notification flipped back to the wrong icon.
+            if (typeof window.AndroidMediaSession.isPlayingNative === 'function') {
+                const reallyPlaying = window.AndroidMediaSession.isPlayingNative();
+                if (reallyPlaying !== Store.isPlaying) {
+                    Store.isPlaying = reallyPlaying;
+                    this.updatePlayButton();
+                }
+            }
         } else {
             if (!this.audio) return;
             const active = this._isCrossfading && this._crossfadeAudio ? this._crossfadeAudio : this.audio;

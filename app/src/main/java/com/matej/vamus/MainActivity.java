@@ -48,8 +48,19 @@ public class MainActivity extends BridgeActivity {
         return lastNotification;
     }
 
+    public PlaybackQueue getPlaybackQueue() {
+        return playbackQueue;
+    }
+
     public PlaybackQueue.Result consumeNextTrackInfo() {
         return playbackQueue.consumeNext();
+    }
+
+    /** Pushes a playback state from native (transport controls) to the session. */
+    public void publishPlaybackState(final boolean isPlaying, final long posMs, final long durMs) {
+        runOnUiThread(new Runnable() {
+            @Override public void run() { updateNativePlaybackState(isPlaying, posMs, durMs); }
+        });
     }
 
     private static java.util.List<PlaybackQueue.Track> parseTracks(String json) {
@@ -153,16 +164,12 @@ public class MainActivity extends BridgeActivity {
         handleIntentAction(intent);
     }
 
+    /**
+     * Transport actions are handled by MediaPlaybackService now, so nothing
+     * here reacts to them. Kept as the hook for any future launch intents.
+     */
     private void handleIntentAction(Intent intent) {
-        if (intent == null || intent.getAction() == null) return;
-        String action = intent.getAction();
-        if ("ACTION_PLAY_PAUSE".equals(action)) {
-            triggerJsEvent("togglePlay()");
-        } else if ("ACTION_PREV".equals(action)) {
-            triggerJsEvent("playPrev()");
-        } else if ("ACTION_NEXT".equals(action)) {
-            triggerJsEvent("playNext()");
-        }
+        // no-op
     }
 
     private void setupMediaSession() {
@@ -182,11 +189,27 @@ public class MainActivity extends BridgeActivity {
         mediaSession.setPlaybackState(stateBuilder.build());
 
         mediaSession.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() { triggerJsEvent("togglePlay()"); }
-            @Override public void onPause() { triggerJsEvent("togglePlay()"); }
-            @Override public void onSkipToNext() { triggerJsEvent("playNext()"); }
-            @Override public void onSkipToPrevious() { triggerJsEvent("playPrev()"); }
-            @Override public void onSeekTo(long pos) { triggerJsEvent("seekToMs(" + pos + ")"); }
+            // Lock screen, Bluetooth and car head units land here. These must
+            // act on the player directly: routing them into the WebView meant
+            // they silently did nothing whenever it was throttled, then all
+            // fired at once when the app came back to the foreground.
+            @Override public void onPlay() { transport("ACTION_PLAY_PAUSE"); }
+            @Override public void onPause() { transport("ACTION_PLAY_PAUSE"); }
+            @Override public void onSkipToNext() { transport("ACTION_NEXT"); }
+            @Override public void onSkipToPrevious() { transport("ACTION_PREV"); }
+            @Override public void onStop() {
+                MediaPlaybackService svc = MediaPlaybackService.getInstance();
+                if (svc != null) svc.pausePlayback();
+            }
+            @Override public void onSeekTo(long pos) {
+                // Seek natively only. Forwarding this into the WebView issued a
+                // second identical seek, and while the WebView is throttled the
+                // forwarded call could land after the track had auto-advanced
+                // and drag the *new* track to the old position. JS reads the
+                // position back from native on its own ticker anyway.
+                MediaPlaybackService svc = MediaPlaybackService.getInstance();
+                if (svc != null) svc.seekTo((int) pos);
+            }
         });
 
         mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS |
@@ -229,7 +252,15 @@ public class MainActivity extends BridgeActivity {
             }
 
             @JavascriptInterface
-            public void playUri(final String url, final boolean isCrossfade, final int crossfadeDurationMs) {
+            public void playUri(final String url, final String trackId,
+                                final boolean fromHistory,
+                                final boolean isCrossfade, final int crossfadeDurationMs) {
+                // Record which track the WebView just started, and whether this
+                // was a forward move or the Previous button. Without this,
+                // native could not tell a fresh context push from a stale one
+                // that had been sitting in the queue while the app slept, and
+                // a rewind corrupted the history the car controls share.
+                playbackQueue.setCurrent(trackId, null, fromHistory);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -303,6 +334,17 @@ public class MainActivity extends BridgeActivity {
             }
 
             /**
+             * Whether audio is actually playing. Transport controls can change
+             * this while the WebView is asleep, so JS reconciles against it
+             * rather than trusting its own last-known flag.
+             */
+            @JavascriptInterface
+            public boolean isPlayingNative() {
+                MediaPlaybackService svc = MediaPlaybackService.getInstance();
+                return svc != null && svc.isPlayingNow();
+            }
+
+            /**
              * Pre-computed next track info pushed from JS so the native
              * completion handler can advance without a JS round-trip.
              * Called with (null, null, null, null, null) to clear.
@@ -331,14 +373,30 @@ public class MainActivity extends BridgeActivity {
              * Both arrays are JSON: {id, title, artist, thumbnail, streamUrl}.
              */
             @JavascriptInterface
-            public void setPlaybackContext(final String queueJson,
-                                          final String contextJson,
-                                          final String currentTrackId,
-                                          final String repeat,
-                                          final boolean shuffle,
-                                          final boolean autoplay) {
-                playbackQueue.setContext(parseTracks(queueJson), parseTracks(contextJson),
+            public boolean setPlaybackContext(final String queueJson,
+                                              final String contextJson,
+                                              final String currentTrackId,
+                                              final String repeat,
+                                              final boolean shuffle,
+                                              final boolean autoplay) {
+                // Returns false when the push was stale and the queue part was
+                // dropped, so JS knows not to remember it as delivered.
+                return playbackQueue.setContext(parseTracks(queueJson), parseTracks(contextJson),
                         currentTrackId, repeat, shuffle, autoplay);
+            }
+
+            /** Real installed version, so About can stop hardcoding one. */
+            @JavascriptInterface
+            public String getAppVersion() {
+                try {
+                    android.content.pm.PackageInfo pi =
+                            getPackageManager().getPackageInfo(getPackageName(), 0);
+                    long code = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                            ? pi.getLongVersionCode() : pi.versionCode;
+                    return pi.versionName + " (" + code + ")";
+                } catch (Exception e) {
+                    return "";
+                }
             }
 
             @JavascriptInterface
@@ -639,12 +697,30 @@ public class MainActivity extends BridgeActivity {
     }
 
     private PendingIntent createPlaybackPendingIntent(String action) {
-        Intent intent = new Intent(this, MainActivity.class);
+        Intent intent = new Intent(this, MediaPlaybackService.class);
         intent.setAction(action);
-        return PendingIntent.getActivity(
+        // getService, not getActivity: these are transport buttons, and an
+        // Activity PendingIntent brought the whole app to the foreground every
+        // time the user tapped Next on the notification.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            return PendingIntent.getForegroundService(
+                    this, action.hashCode(), intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+        return PendingIntent.getService(
                 this, action.hashCode(), intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** Forwards a transport action to the playback service. */
+    private void transport(String action) {
+        MediaPlaybackService svc = MediaPlaybackService.getInstance();
+        if (svc == null) return;
+        switch (action) {
+            case "ACTION_NEXT": svc.skipToNext(); break;
+            case "ACTION_PREV": svc.skipToPrevious(); break;
+            default: svc.togglePlayPause(); break;
+        }
     }
 
     @SuppressWarnings("deprecation")

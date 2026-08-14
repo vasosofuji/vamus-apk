@@ -173,8 +173,17 @@ public class MediaPlaybackService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         ensureForeground();
-        if (intent != null && "STOP_FOREGROUND".equals(intent.getAction())) {
-            stopSelfSafely();
+        String action = intent != null ? intent.getAction() : null;
+        if (action == null) return START_STICKY;
+        switch (action) {
+            case "STOP_FOREGROUND": stopSelfSafely(); break;
+            // Notification buttons post straight to the service. They used to
+            // be Activity PendingIntents, so tapping Next also yanked the app
+            // to the foreground.
+            case "ACTION_NEXT": skipToNext(); break;
+            case "ACTION_PREV": skipToPrevious(); break;
+            case "ACTION_PLAY_PAUSE": togglePlayPause(); break;
+            default: break;
         }
         return START_STICKY;
     }
@@ -466,6 +475,9 @@ public class MediaPlaybackService extends Service {
                     ExoPlayer source = (crossfadeRamp != null && crossfadePlayer != null)
                             ? crossfadePlayer : player;
                     if (source != null) {
+                        cachedIsPlaying = source.getPlayWhenReady()
+                                && source.getPlaybackState() != Player.STATE_ENDED
+                                && source.getPlaybackState() != Player.STATE_IDLE;
                         long pos = source.getCurrentPosition();
                         long dur = source.getDuration();
                         cachedPositionMs = pos < 0 ? 0 : pos;
@@ -592,25 +604,126 @@ public class MediaPlaybackService extends Service {
         fetchRadioAndPlayNatively();
     }
 
+    // ------------------------------------------------------- transport controls
+    //
+    // Notification buttons, lock-screen controls, Bluetooth and car head units
+    // all land here. They used to be forwarded into the WebView as
+    // `playNext()` / `playPrev()` / `togglePlay()`, which meant they only
+    // worked while the WebView happened to be running: with the screen off the
+    // calls were queued instead of executed, so the button did nothing at the
+    // time and then every queued skip fired at once when the app was reopened.
+    // Native now acts on the player immediately and tells JS afterwards, so the
+    // UI catches up whenever it next runs.
+
+    public void skipToNext() {
+        runOnPlayer(new Runnable() {
+            @Override public void run() {
+                MainActivity activity = MainActivity.getInstance();
+                if (activity == null) return;
+                dbg("transport: next");
+                cancelPendingAction();
+                PlaybackQueue.Result r = activity.getPlaybackQueue().skipNext();
+                if (r.outcome == PlaybackQueue.Outcome.TRACK && r.track != null
+                        && !r.track.streamUrl.isEmpty()) {
+                    rememberNativelyPlayed(r.track.trackId);
+                    activity.applyPendingNextMetadata(r.track);
+                    startPlayback(r.track.streamUrl);
+                    notifyJsOfAdvance(r.track);
+                } else if (r.outcome == PlaybackQueue.Outcome.RADIO) {
+                    fetchRadioAndPlayNatively();
+                } else {
+                    onPlaybackFinished();
+                }
+            }
+        });
+    }
+
+    public void skipToPrevious() {
+        runOnPlayer(new Runnable() {
+            @Override public void run() {
+                MainActivity activity = MainActivity.getInstance();
+                if (activity == null) return;
+                // Match the in-app button: past the first few seconds, Previous
+                // restarts the current track rather than leaving it.
+                if (player != null && cachedPositionMs > 3000) {
+                    dbg("transport: prev -> restart");
+                    player.seekTo(0);
+                    player.setPlayWhenReady(true);
+                    return;
+                }
+                PlaybackQueue.Track prev = activity.getPlaybackQueue().skipPrevious();
+                if (prev == null || prev.streamUrl.isEmpty()) {
+                    dbg("transport: prev -> no history, restart");
+                    if (player != null) {
+                        player.seekTo(0);
+                        player.setPlayWhenReady(true);
+                    }
+                    return;
+                }
+                dbg("transport: prev -> " + prev.trackId);
+                cancelPendingAction();
+                activity.applyPendingNextMetadata(prev);
+                startPlayback(prev.streamUrl);
+                notifyJs("_onNativeWentBack", jsonQuote(prev.trackId) + ", " + trackJson(prev));
+            }
+        });
+    }
+
+    public void togglePlayPause() {
+        runOnPlayer(new Runnable() {
+            @Override public void run() {
+                if (player == null) {
+                    // Nothing loaded. Reporting "playing" here flipped the
+                    // notification to a pause icon while the device stayed
+                    // silent, and the user had to press twice to recover.
+                    dbg("transport: toggle ignored, no player");
+                    return;
+                }
+                boolean playing = player.getPlayWhenReady();
+                dbg("transport: toggle -> " + (playing ? "pause" : "play"));
+                if (playing) pausePlayback(); else resumePlayback();
+                // Report the state actually observed after the call.
+                boolean nowPlaying = player.getPlayWhenReady();
+                MainActivity activity = MainActivity.getInstance();
+                if (activity != null) {
+                    activity.publishPlaybackState(nowPlaying, cachedPositionMs, cachedDurationMs);
+                }
+                cachedIsPlaying = nowPlaying;
+                notifyJs("_onNativePlaybackToggled", String.valueOf(nowPlaying));
+            }
+        });
+    }
+
+    private void cancelPendingAction() {
+        if (pendingAction != null) {
+            mainHandler.removeCallbacks(pendingAction);
+            pendingAction = null;
+        }
+        sameTrackRetries = 0;
+        consecutiveSkips = 0;
+    }
+
     /**
      * Hands JS the whole track, not just its id. When native picks a song JS has
      * never seen (its own radio fetch), an id alone could not be resolved, so JS
      * silently kept the previous track as "current" — the UI, the queue and the
      * notification then disagreed about what was playing.
      */
-    private void notifyJsOfAdvance(PlaybackQueue.Track t) {
-        String json;
+    private static String trackJson(PlaybackQueue.Track t) {
         try {
-            json = new org.json.JSONObject()
+            return new org.json.JSONObject()
                     .put("id", t.trackId)
                     .put("title", t.title)
                     .put("artist", t.artist)
                     .put("thumbnail", t.thumbnail)
                     .toString();
         } catch (org.json.JSONException e) {
-            json = "null";
+            return "null";
         }
-        notifyJs("_onNativeAdvanced", jsonQuote(t.trackId) + ", " + json);
+    }
+
+    private void notifyJsOfAdvance(PlaybackQueue.Track t) {
+        notifyJs("_onNativeAdvanced", jsonQuote(t.trackId) + ", " + trackJson(t));
     }
 
     private void onPlaybackFinished() {
@@ -774,6 +887,14 @@ public class MediaPlaybackService extends Service {
 
     public int getDuration() {
         return (int) cachedDurationMs;
+    }
+
+    // Updated by the main-thread ticker for the same reason as position:
+    // ExoPlayer must not be touched from the binder thread the bridge uses.
+    private volatile boolean cachedIsPlaying = false;
+
+    public boolean isPlayingNow() {
+        return cachedIsPlaying;
     }
 
     // ----------------------------------------------------------- cleanup

@@ -1,6 +1,7 @@
 package com.matej.vamus;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -105,7 +106,9 @@ public class PlaybackQueueTest {
         q.setPendingNext(t("A"));
         assertEquals(Arrays.asList("A", "A"), play(q, 2));
 
-        // User skips to C; Repeat One continues on C.
+        // User skips to C in the app. playUri() reports the new current track
+        // first, then JS pushes the matching context; Repeat One follows C.
+        q.setCurrent("C", t("C"), false);
         q.setContext(list(), list("A", "B", "C"), "C", "one", false, true);
         assertEquals("C", q.consumeNext().track.trackId);
     }
@@ -169,6 +172,164 @@ public class PlaybackQueueTest {
         PlaybackQueue.Result r = q.consumeNext();
         assertNull(r.track);
         assertEquals(PlaybackQueue.Outcome.STOP, r.outcome);
+    }
+
+    /**
+     * The WebView is throttled in the background, so a context push can arrive
+     * long after it was computed. Applying a stale one handed already-played
+     * tracks back to native and they played a second time — the "songs repeat
+     * with the screen off" report.
+     */
+    @Test
+    public void staleContextPushIsIgnored() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C", "D"), list("A", "B", "C", "D"), "A", "none", false, true);
+
+        assertEquals("B", q.consumeNext().track.trackId);
+        assertEquals("C", q.consumeNext().track.trackId);   // native is now on C
+
+        // A push computed back when A was playing finally lands.
+        boolean applied = q.setContext(list("B", "C", "D"), list("A", "B", "C", "D"),
+                "A", "none", false, true);
+        assertFalse("stale push must not be applied", applied);
+
+        // B and C must not come back.
+        assertEquals("D", q.consumeNext().track.trackId);
+        assertEquals(PlaybackQueue.Outcome.RADIO, q.consumeNext().outcome);
+    }
+
+    /** A fresh push (current track matches) is applied normally. */
+    @Test
+    public void currentContextPushIsApplied() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C"), list("A", "B", "C"), "A", "none", false, true);
+        assertEquals("B", q.consumeNext().track.trackId);
+
+        assertTrue(q.setContext(list("C", "X"), list("A", "B", "C", "X"), "B", "none", false, true));
+        assertEquals(Arrays.asList("C", "X"), q.upcomingIds());
+    }
+
+    /** Settings still apply even when the queue part of a push is stale. */
+    @Test
+    public void staleContextStillUpdatesSettings() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B"), list("A", "B"), "A", "none", false, true);
+        q.consumeNext();                                    // now on B
+
+        q.setContext(list("B"), list("A", "B"), "A", "none", false, /*autoplay*/ false);
+        // Queue exhausted; the autoplay=false from the stale push must be honoured.
+        assertEquals(PlaybackQueue.Outcome.STOP, q.consumeNext().outcome);
+    }
+
+    /** Manual skip from a car head unit must move on, even in Repeat One. */
+    @Test
+    public void manualSkipIgnoresRepeatOne() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C"), list("A", "B", "C"), "A", "one", false, true);
+        q.setPendingNext(t("A"));                           // the Repeat One hint
+
+        PlaybackQueue.Result r = q.skipNext();
+        assertNotNull(r.track);
+        assertEquals("B", r.track.trackId);
+    }
+
+    /** Previous works natively, without waking the WebView. */
+    @Test
+    public void previousWalksBackThroughHistory() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C", "D"), list("A", "B", "C", "D"), "A", "none", false, true);
+        assertEquals("B", q.consumeNext().track.trackId);
+        assertEquals("C", q.consumeNext().track.trackId);
+
+        assertEquals("B", q.skipPrevious().trackId);
+        assertEquals("A", q.skipPrevious().trackId);
+        assertNull("nothing before the first track", q.skipPrevious());
+    }
+
+    /** Going back then forward returns to the track we left, not past it. */
+    @Test
+    public void previousThenNextIsSymmetric() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C", "D"), list("A", "B", "C", "D"), "A", "none", false, true);
+        q.consumeNext();                                    // B
+        q.consumeNext();                                    // C
+        assertEquals("B", q.skipPrevious().trackId);
+        assertEquals("C", q.skipNext().track.trackId);
+        assertEquals("D", q.skipNext().track.trackId);
+    }
+
+    /** setCurrent marks what the WebView started so a matching push is fresh. */
+    @Test
+    public void setCurrentMakesTheMatchingPushFresh() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C"), list("A", "B", "C"), "A", "none", false, true);
+        q.consumeNext();                                    // native on B
+
+        // The user taps track C in the app: JS calls playUri then pushes.
+        q.setCurrent("C", t("C"), false);
+        assertTrue(q.setContext(list(), list("A", "B", "C"), "C", "none", false, true));
+        assertEquals("C", q.getCurrentTrackId());
+    }
+
+    /**
+     * The in-app Previous button routes through setCurrent(fromHistory=true).
+     * Treating it as a forward move recorded the track being left as its own
+     * predecessor, so Previous on a lock screen or car head unit then moved
+     * FORWARD and the two controls ping-ponged between two songs.
+     */
+    @Test
+    public void inAppPreviousDoesNotCorruptNativeHistory() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C"), list("A", "B", "C"), "A", "none", false, true);
+        assertEquals("B", q.consumeNext().track.trackId);   // history = [A]
+
+        // User taps Previous inside the app: JS replays A as a history rewind.
+        q.setCurrent("A", t("A"), /*fromHistory*/ true);
+        assertEquals("A", q.getCurrentTrackId());
+
+        // A head-unit Previous must now find nothing before A, not jump to B.
+        assertNull("Previous went forward", q.skipPrevious());
+        // ...and B is queued up again, so Next returns to it.
+        assertEquals("B", q.skipNext().track.trackId);
+    }
+
+    /** A forward move via setCurrent still records history normally. */
+    @Test
+    public void inAppForwardPlayRecordsHistory() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B", "C"), list("A", "B", "C"), "A", "none", false, true);
+        q.setCurrent("C", t("C"), /*fromHistory*/ false);
+        assertEquals("A", q.skipPrevious().trackId);
+    }
+
+    /** Repeat One must not record the playing song as its own predecessor. */
+    @Test
+    public void repeatOneDoesNotPolluteHistory() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list(), list("X", "A"), "X", "none", false, true);
+        q.setCurrent("A", t("A"), false);                   // played X then A
+        q.setContext(list(), list("X", "A"), "A", "one", false, true);
+
+        q.setPendingNext(t("A"));                           // repeat-one hint
+        assertEquals("A", q.consumeNext().track.trackId);
+        assertEquals("A", q.consumeNext().track.trackId);   // loops again
+
+        // One press of Previous must reach X, not the song already playing.
+        PlaybackQueue.Track prev = q.skipPrevious();
+        assertNotNull(prev);
+        assertEquals("X", prev.trackId);
+    }
+
+    /** A stream retry re-declares the same track and must change nothing. */
+    @Test
+    public void repeatedSetCurrentOnSameTrackIsInert() {
+        PlaybackQueue q = new PlaybackQueue();
+        q.setContext(list("B"), list("A", "B"), "A", "none", false, true);
+        q.setCurrent("B", t("B"), false);                   // history = [A]
+        q.setCurrent("B", t("B"), false);                   // retry
+        q.setCurrent("B", t("B"), false);                   // retry
+        assertEquals("A", q.skipPrevious().trackId);
+        assertNull(q.skipPrevious());
     }
 
     /** A pending hint with no stream URL clears rather than queues an unplayable track. */

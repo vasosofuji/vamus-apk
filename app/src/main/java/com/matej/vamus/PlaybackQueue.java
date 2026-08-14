@@ -59,6 +59,12 @@ public class PlaybackQueue {
     // tracks each time around.
     private final List<Track> context = new ArrayList<>();
 
+    // Tracks already played, oldest first. Native keeps its own copy so the
+    // Previous button on a lock screen or car head unit works without waking
+    // the WebView.
+    private final List<Track> history = new ArrayList<>();
+    private static final int MAX_HISTORY = 100;
+
     private Track currentTrack;
     private String currentTrackId;
     private String repeat = "none";
@@ -68,9 +74,27 @@ public class PlaybackQueue {
 
     private final Random random = new Random();
 
-    public synchronized void setContext(List<Track> upcomingTracks, List<Track> contextTracks,
-                                        String currentId, String repeatMode,
-                                        boolean shuffleOn, boolean autoplayOn) {
+    /**
+     * Mirrors the WebView's view of the queue.
+     *
+     * Returns false and keeps the existing queue when `currentId` is not the
+     * track native is actually playing. The WebView is throttled in the
+     * background, so a push can arrive long after it was computed; applying a
+     * stale one wholesale used to hand already-played tracks back to native and
+     * they played a second time.
+     */
+    public synchronized boolean setContext(List<Track> upcomingTracks, List<Track> contextTracks,
+                                           String currentId, String repeatMode,
+                                           boolean shuffleOn, boolean autoplayOn) {
+        // Settings are never stale — apply them whatever the queue state.
+        repeat = repeatMode != null ? repeatMode : "none";
+        shuffle = shuffleOn;
+        autoplay = autoplayOn;
+
+        if (currentTrackId != null && currentId != null && !currentTrackId.equals(currentId)) {
+            return false;
+        }
+
         upcoming.clear();
         if (upcomingTracks != null) upcoming.addAll(upcomingTracks);
         context.clear();
@@ -83,9 +107,52 @@ public class PlaybackQueue {
             currentTrack = findById(context, currentId);
         }
         currentTrackId = currentId;
-        repeat = repeatMode != null ? repeatMode : "none";
-        shuffle = shuffleOn;
-        autoplay = autoplayOn;
+        return true;
+    }
+
+    /**
+     * Declares which track the WebView just started, so a context push that
+     * arrives alongside it is recognised as current rather than stale.
+     *
+     * `fromHistory` distinguishes a forward move from the Previous button. It
+     * matters because history is shared with the lock-screen and car controls:
+     * treating a rewind as a forward move recorded the track being left as its
+     * own predecessor, and Previous on a head unit then moved *forward*,
+     * ping-ponging between two songs.
+     */
+    public synchronized void setCurrent(String trackId, Track track, boolean fromHistory) {
+        if (trackId == null || trackId.isEmpty()) return;
+
+        // Same track: a stream retry or a Repeat One restart. Nothing to record.
+        if (trackId.equals(currentTrackId)) {
+            if (track != null && !track.streamUrl.isEmpty()) currentTrack = track;
+            pendingNext = null;
+            return;
+        }
+
+        Track leaving = currentTrack;
+        if (fromHistory) {
+            removeById(history, trackId);
+            // The song we just left becomes the next one up again.
+            if (leaving != null && indexOf(upcoming, leaving.trackId) < 0) {
+                upcoming.add(0, leaving);
+            }
+        } else {
+            pushHistory(leaving);
+        }
+
+        currentTrackId = trackId;
+        if (track != null && !track.streamUrl.isEmpty()) currentTrack = track;
+        else currentTrack = findById(context, trackId);
+        removeById(upcoming, trackId);
+        pendingNext = null;
+    }
+
+    private void pushHistory(Track t) {
+        if (t == null) return;
+        removeById(history, t.trackId);
+        history.add(t);
+        while (history.size() > MAX_HISTORY) history.remove(0);
     }
 
     /** The next track JS has already decided on. Null/empty url clears it. */
@@ -105,6 +172,44 @@ public class PlaybackQueue {
      * STOP  — queue exhausted and autoplay is off; stop cleanly.
      */
     public synchronized Result consumeNext() {
+        return advance(true);
+    }
+
+    /**
+     * Manual skip from a notification, lock screen or car head unit.
+     *
+     * Unlike an auto-advance it never honours Repeat One — pressing Next should
+     * move to the following song, not replay the current one.
+     */
+    public synchronized Result skipNext() {
+        if (pendingNext != null && pendingNext.trackId.equals(currentTrackId)) {
+            // A Repeat One hint; the user asked to move on.
+            pendingNext = null;
+        }
+        return advance(false);
+    }
+
+    /**
+     * Manual Previous. Native keeps its own history so this works with the
+     * WebView asleep; returns null when there is nothing to go back to and the
+     * caller should just restart the current track.
+     */
+    public synchronized Track skipPrevious() {
+        if (history.isEmpty()) return null;
+        Track prev = history.remove(history.size() - 1);
+        // The track we are leaving becomes the next one up again.
+        if (currentTrack != null && !currentTrack.trackId.equals(prev.trackId)
+                && indexOf(upcoming, currentTrack.trackId) < 0) {
+            upcoming.add(0, currentTrack);
+        }
+        currentTrack = prev;
+        currentTrackId = prev.trackId;
+        removeById(upcoming, prev.trackId);
+        pendingNext = null;
+        return prev;
+    }
+
+    private Result advance(boolean honorRepeatOne) {
         Track hint = pendingNext;
         pendingNext = null;
 
@@ -113,12 +218,16 @@ public class PlaybackQueue {
             // WebView went to sleep the very next native advance popped the same
             // track straight back off the queue and replayed it.
             removeById(upcoming, hint.trackId);
+            // Under Repeat One the hint IS the current track, so pushing here
+            // unconditionally made the playing song its own predecessor and
+            // Previous needed two presses to actually go back.
+            if (!hint.trackId.equals(currentTrackId)) pushHistory(currentTrack);
             currentTrack = hint;
             currentTrackId = hint.trackId;
             return new Result(Outcome.TRACK, hint);
         }
 
-        Track pick = computeNext();
+        Track pick = computeNext(honorRepeatOne);
         if (pick != null) return new Result(Outcome.TRACK, pick);
         // Respect the user's Autoplay setting. Native used to fetch a radio
         // track unconditionally, so turning Autoplay off still produced a
@@ -126,8 +235,8 @@ public class PlaybackQueue {
         return new Result(autoplay ? Outcome.RADIO : Outcome.STOP, null);
     }
 
-    private Track computeNext() {
-        if ("one".equals(repeat)) {
+    private Track computeNext(boolean honorRepeatOne) {
+        if (honorRepeatOne && "one".equals(repeat)) {
             if (currentTrack != null) return currentTrack;
             return findById(context, currentTrackId);
         }
@@ -156,6 +265,9 @@ public class PlaybackQueue {
             pick = upcoming.remove(0);
         }
 
+        // Same guard as the hint path: a single-track Repeat All context picks
+        // the song already playing.
+        if (!pick.trackId.equals(currentTrackId)) pushHistory(currentTrack);
         currentTrack = pick;
         currentTrackId = pick.trackId;
         return pick;
@@ -164,6 +276,9 @@ public class PlaybackQueue {
     /** Called when native picked a radio track on its own. */
     public synchronized void adoptExternal(Track track) {
         if (track == null) return;
+        if (currentTrack != null && !currentTrack.trackId.equals(track.trackId)) {
+            pushHistory(currentTrack);
+        }
         currentTrack = track;
         currentTrackId = track.trackId;
         removeById(upcoming, track.trackId);

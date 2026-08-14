@@ -2658,6 +2658,19 @@ function toggleDeveloperDebugButton(enabled) {
     }
 }
 
+// The real installed version, straight from the package manager. About used to
+// hardcode "1.0.0", so there was no way to tell which build was actually on the
+// device.
+function getAppVersionLabel() {
+    try {
+        if (window.AndroidMediaSession && typeof window.AndroidMediaSession.getAppVersion === 'function') {
+            const v = window.AndroidMediaSession.getAppVersion();
+            if (v) return v;
+        }
+    } catch (e) {}
+    return 'unknown';
+}
+
 function openAboutModal() {
     const overlay = document.getElementById('modal-overlay');
     if (!overlay) return;
@@ -2666,7 +2679,7 @@ function openAboutModal() {
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:400px">
         <h3>ℹ️ About Vamus</h3>
         <p style="font-size:0.9rem;color:var(--text-primary);margin-top:0.75rem">Vamus — Ad-free music streaming & audio player</p>
-        <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.25rem">Version 1.0.0 (Flask + ExoPlayer + Capacitor)</p>
+        <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.25rem">Version ${escapeHtml(getAppVersionLabel())} (Flask + ExoPlayer + Capacitor)</p>
         <p style="font-size:0.82rem;color:var(--text-muted);margin-top:0.75rem">Powered by ExoPlayer, YouTube Music API, and custom theme engines.</p>
 
         <div class="modal-actions" style="margin-top:1.5rem">
