@@ -449,11 +449,11 @@ def resolve_innertube_stream(video_id):
             try:
                 chk = http_requests.get(
                     chosen_url,
-                    headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile)', 'Range': 'bytes=0-1024'},
-                    timeout=2.0,
-                    stream=True
+                    headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile)'},
+                    stream=True,
+                    timeout=2.0
                 )
-                if chk.status_code not in (200, 206):
+                if chk.status_code != 200:
                     dlog('  innertube:%s stream check failed HTTP %s' % (label, chk.status_code))
                     continue
             except Exception as e_chk:
@@ -465,6 +465,35 @@ def resolve_innertube_stream(video_id):
         except Exception as e:
             dlog('  innertube:%s FAIL: %s' % (label, str(e)[:120]))
     return None, None, None
+
+
+_ytdlp_singleton = None
+_ytdlp_lock = _threading.Lock()
+
+
+def get_ytdlp_instance():
+    global _ytdlp_singleton
+    with _ytdlp_lock:
+        if _ytdlp_singleton is None:
+            try:
+                import yt_dlp
+                ydl_opts = {
+                    'format': '140/251/18/bestaudio/best',
+                    'logger': YtDlpLogger(),
+                    'quiet': True,
+                    'no_warnings': True,
+                    'no_playlist': True,
+                    'skip_download': True,
+                    'nocheckcertificate': True,
+                    'socket_timeout': 6,
+                    'extractor_args': {
+                        'youtube': {'player_client': ['android']}
+                    },
+                }
+                _ytdlp_singleton = yt_dlp.YoutubeDL(ydl_opts)
+            except Exception as e:
+                dlog('get_ytdlp_instance error: %s' % str(e)[:120])
+        return _ytdlp_singleton
 
 
 def resolve_stream_url(video_id, force_refresh=False):
@@ -479,22 +508,55 @@ def resolve_stream_url(video_id, force_refresh=False):
     dlog('STREAM resolve req id=%s (force_refresh=%s)' % (video_id, force_refresh))
     stream_url = source = chosen_fmt = None
 
-    # Tier 1: Direct Innertube Resolution with reachability check (~0.2-0.6s)
+    # Tier 1: Fast yt-dlp android client resolution (~1.0-1.5s)
     try:
         t0 = _time.time()
-        stream_url, source, chosen_fmt = resolve_innertube_stream(video_id)
-        if stream_url:
-            dlog('  innertube OK via %s (%.2fs)' % (source, _time.time() - t0))
+        ydl = get_ytdlp_instance()
+        if ydl:
+            info = ydl.extract_info(
+                f'https://www.youtube.com/watch?v={video_id}',
+                download=False,
+            )
+            url = info.get('url')
+            if url:
+                try:
+                    chk = http_requests.get(
+                        url,
+                        headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile)'},
+                        stream=True,
+                        timeout=3.0
+                    )
+                    if chk.status_code == 200:
+                        chosen_fmt = '%s/%s/%s' % (
+                            info.get('format_id'), info.get('ext'),
+                            info.get('acodec'))
+                        source = 'yt-dlp:android'
+                        dlog('  yt-dlp android OK fmt=%s %.2fs' % (
+                            chosen_fmt, _time.time() - t0))
+                        stream_url = url
+                    else:
+                        dlog('  yt-dlp android stream check failed HTTP %s' % chk.status_code)
+                except Exception as e_chk:
+                    dlog('  yt-dlp android stream check error: %s' % str(e_chk)[:120])
     except Exception as e:
-        dlog('  innertube error: %s' % str(e)[:120])
+        dlog('  yt-dlp primary error: %s' % str(e)[:120])
 
-    # Tier 2: yt-dlp with optimized extractor player clients
+    # Tier 2: Direct Innertube Resolution with reachability check (~0.2-0.6s)
+    if not stream_url:
+        try:
+            t0 = _time.time()
+            stream_url, source, chosen_fmt = resolve_innertube_stream(video_id)
+            if stream_url:
+                dlog('  innertube OK via %s (%.2fs)' % (source, _time.time() - t0))
+        except Exception as e:
+            dlog('  innertube error: %s' % str(e)[:120])
+
+    # Tier 3: Fallback yt-dlp client sets
     if not stream_url:
         ytdlp_client_sets = [
-            ['android'],
             ['android', 'android_creator'],
-            ['android_vr'],
             ['tv_embedded'],
+            ['web'],
         ]
 
         try:
@@ -515,30 +577,34 @@ def resolve_stream_url(video_id, force_refresh=False):
                             'youtube': {'player_client': client_set}
                         },
                     }
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_fb:
+                        info = ydl_fb.extract_info(
                             f'https://www.youtube.com/watch?v={video_id}',
                             download=False,
                         )
                         url = info.get('url')
                         if url:
-                            chosen_fmt = '%s/%s/%s' % (
-                                info.get('format_id'), info.get('ext'),
-                                info.get('acodec'))
-                            source = 'yt-dlp:%s' % client_set[0]
-                            dlog('  yt-dlp %s OK fmt=%s %.2fs' % (
-                                client_set[0], chosen_fmt, _time.time() - t0))
-                            stream_url = url
-                            break
-                        else:
-                            dlog('  yt-dlp %s no-url %.2fs' % (
-                                client_set[0], _time.time() - t0))
+                            chk = http_requests.get(
+                                url,
+                                headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile)'},
+                                stream=True,
+                                timeout=3.0
+                            )
+                            if chk.status_code == 200:
+                                chosen_fmt = '%s/%s/%s' % (
+                                    info.get('format_id'), info.get('ext'),
+                                    info.get('acodec'))
+                                source = 'yt-dlp:%s' % client_set[0]
+                                dlog('  yt-dlp %s OK fmt=%s %.2fs' % (
+                                    client_set[0], chosen_fmt, _time.time() - t0))
+                                stream_url = url
+                                break
                 except Exception as e:
                     dlog('  yt-dlp %s FAIL %.2fs: %s' % (
                         client_set[0], _time.time() - t0, str(e)[:120]))
                     continue
         except Exception as e:
-            dlog('  yt-dlp unavailable: %s' % str(e)[:120])
+            dlog('  yt-dlp fallback unavailable: %s' % str(e)[:120])
 
     # Tier 3: Piped instances fallback
     if not stream_url:
@@ -1932,6 +1998,8 @@ def api_delete_download():
 def start_server(host='127.0.0.1', port=5000):
     """Starts the Flask server safely for Chaquopy on Android."""
     try:
+        # Pre-warm yt-dlp extractor in background thread so the first song plays instantly
+        _threading.Thread(target=get_ytdlp_instance, daemon=True).start()
         dlog(f"Starting Python Flask server on {host}:{port}...")
         from werkzeug.serving import run_simple
         run_simple(host, int(port), app, threaded=True, use_reloader=False, use_debugger=False)

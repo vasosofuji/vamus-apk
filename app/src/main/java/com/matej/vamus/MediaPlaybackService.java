@@ -266,8 +266,8 @@ public class MediaPlaybackService extends Service {
 
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(15000)
+                .setConnectTimeoutMs(30000)
+                .setReadTimeoutMs(30000)
                 .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
 
         androidx.media3.datasource.DefaultDataSource.Factory dataSourceFactory =
