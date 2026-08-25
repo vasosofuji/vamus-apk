@@ -184,6 +184,28 @@ def spa_catch_all(path):
     return send_from_directory(app.static_folder, 'index.html')
 
 
+def get_high_res_avatar(url):
+    if not url or not isinstance(url, str):
+        return ''
+    if url.startswith('//'):
+        url = 'https:' + url
+    if '=' in url and ('googleusercontent.com' in url or 'ggpht.com' in url):
+        base = url.split('=')[0]
+        return base + '=w800-h800-p-l90-rj'
+    return url
+
+
+def get_high_res_banner(url):
+    if not url or not isinstance(url, str):
+        return ''
+    if url.startswith('//'):
+        url = 'https:' + url
+    if '=' in url and ('googleusercontent.com' in url or 'ggpht.com' in url):
+        base = url.split('=')[0]
+        return base + '=w1920-h800-p-l90-rj'
+    return url
+
+
 # ---------------------------------------------------------------------------
 # API: Search
 # ---------------------------------------------------------------------------
@@ -217,11 +239,10 @@ def api_search():
                             seen_names.add(name.lower())
                             if bid: seen_ids.add(bid)
                             raw_thumb = r.get('thumbnails')[-1].get('url') if r.get('thumbnails') else ''
-                            if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
                             mapped.append({
                                 'id': bid,
                                 'name': name,
-                                'thumbnail': raw_thumb,
+                                'thumbnail': get_high_res_avatar(raw_thumb),
                                 'type': 'artist',
                             })
             except Exception:
@@ -238,11 +259,10 @@ def api_search():
                             seen_names.add(name.lower())
                             if bid: seen_ids.add(bid)
                             raw_thumb = song.get('thumbnails')[-1].get('url') if song.get('thumbnails') else ''
-                            if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
                             mapped.append({
                                 'id': bid,
                                 'name': name,
-                                'thumbnail': raw_thumb,
+                                'thumbnail': get_high_res_avatar(raw_thumb),
                                 'type': 'artist',
                             })
             except Exception:
@@ -258,11 +278,10 @@ def api_search():
                         seen_names.add(name.lower())
                         if bid: seen_ids.add(bid)
                         raw_thumb = a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else ''
-                        if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
                         mapped.append({
                             'id': bid,
                             'name': name,
-                            'thumbnail': raw_thumb,
+                            'thumbnail': get_high_res_avatar(raw_thumb),
                             'type': 'artist',
                         })
             except Exception:
@@ -850,10 +869,15 @@ def api_artist():
         singles = []
         artist_name = artist_id
         avatar_url = ''
+        banner_url = ''
 
         if artist_data:
             artist_name = artist_data.get('name') or artist_id
-            avatar_url = artist_data.get('thumbnails')[-1].get('url') if artist_data.get('thumbnails') else ''
+            if artist_data.get('thumbnails'):
+                raw_thumb = artist_data.get('thumbnails')[-1].get('url')
+                avatar_url = get_high_res_avatar(raw_thumb)
+                banner_url = get_high_res_banner(raw_thumb)
+
             raw_songs = artist_data.get('songs', {}).get('results', [])
             for s in raw_songs:
                 songs.append({
@@ -903,7 +927,8 @@ def api_artist():
                         seen_vids.add(vid)
                         thumb = s.get('thumbnails')[-1].get('url') if s.get('thumbnails') else ''
                         if not avatar_url and thumb:
-                            avatar_url = thumb
+                            avatar_url = get_high_res_avatar(thumb)
+                            banner_url = get_high_res_banner(thumb)
                         s_artist_name = s.get('artists', [{}])[0].get('name') if s.get('artists') else artist_name
                         songs.append({
                             'id': vid,
@@ -918,6 +943,11 @@ def api_artist():
                         })
             except Exception as e_extra:
                 dlog(f"Extra artist songs query failed: {e_extra}")
+
+        # If still no avatar/banner, fallback to top song thumbnail
+        if not avatar_url and songs:
+            avatar_url = get_high_res_avatar(songs[0].get('thumbnail'))
+            banner_url = get_high_res_banner(songs[0].get('thumbnail'))
 
         # If still no albums and no artist_data, try searching albums
         if not top_albums:
@@ -940,7 +970,10 @@ def api_artist():
         return jsonify({
             'id': c_id,
             'name': artist_name,
-            'thumbnails': [{'url': avatar_url}] if avatar_url else (artist_data.get('thumbnails', []) if artist_data else []),
+            'avatar': avatar_url,
+            'banner': banner_url,
+            'thumbnail': avatar_url,
+            'thumbnails': [{'url': banner_url}, {'url': avatar_url}] if (banner_url or avatar_url) else [],
             'songs': songs,
             'topAlbums': top_albums,
             'singles': singles,
@@ -1302,7 +1335,7 @@ def api_recommendations():
                         results.append({
                             'id': ch_id,
                             'name': ch_name,
-                            'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
+                            'thumbnail': get_high_res_avatar(a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else ''),
                             'type': 'artist',
                         })
                     if len(results) >= 10:

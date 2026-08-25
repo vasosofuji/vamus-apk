@@ -736,18 +736,19 @@ function renderArtistPage(container, id) {
             return;
         }
         
-        const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || artist.thumbnail || artist.image || '';
-        const bgThumb = artist.thumbnails?.[0]?.url || thumb;
+        const avatar = artist.avatar || artist.thumbnail || artist.thumbnails?.[1]?.url || artist.thumbnails?.[0]?.url || (artist.songs?.[0] ? getTrackThumbnail(artist.songs[0]) : '') || FALLBACK_IMG;
+        const banner = artist.banner || artist.thumbnails?.[0]?.url || avatar || '';
         let html = '<div class="animate-fade-up">';
         
         // Hero
-        html += `<div class="hero-section artist-hero" style="background-image:url('${bgThumb}');position:relative;overflow:hidden;padding:2.5rem 2rem;border-radius:16px;margin-bottom:1.5rem">
-            <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.85));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"></div>
-            <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem">
-                <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
-                <div>
-                    <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Artist</div>
-                    <h1 style="margin:0.25rem 0;font-size:2.4rem;font-weight:800">${escapeHtml(artist.name || '')}</h1>
+        html += `<div class="hero-section artist-hero" style="background-image:url('${escapeAttr(banner)}');position:relative;overflow:hidden;padding:2.5rem 2rem 2.2rem;border-radius:20px;margin-bottom:1.5rem;min-height:220px;display:flex;align-items:flex-end">
+            <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(9,9,11,0.85) 100%);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"></div>
+            <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem;width:100%">
+                <img class="artist-profile-avatar" src="${escapeAttr(avatar)}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'" alt="${escapeHtml(artist.name || '')}">
+                <div style="flex:1;min-width:0">
+                    <div class="hero-type" style="font-size:0.8rem;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;color:var(--primary-color);margin-bottom:4px">Artist</div>
+                    <h1 style="margin:0 0 6px 0;font-size:2.4rem;font-weight:900;letter-spacing:-0.5px;line-height:1.15;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(artist.name || '')}</h1>
+                    ${artist.songs ? `<div style="font-size:0.85rem;color:rgba(255,255,255,0.75);font-weight:600">${artist.songs.length} top songs</div>` : ''}
                 </div>
             </div>
         </div>`;
