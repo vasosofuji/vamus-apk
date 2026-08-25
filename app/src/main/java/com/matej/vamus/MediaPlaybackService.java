@@ -270,16 +270,8 @@ public class MediaPlaybackService extends Service {
                 .setReadTimeoutMs(15000)
                 .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
 
-        SimpleCache cache = getCache();
-        androidx.media3.datasource.DataSource.Factory dataSourceFactory;
-        if (cache != null) {
-            dataSourceFactory = new CacheDataSource.Factory()
-                    .setCache(cache)
-                    .setUpstreamDataSourceFactory(http)
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
-        } else {
-            dataSourceFactory = http;
-        }
+        androidx.media3.datasource.DefaultDataSource.Factory dataSourceFactory =
+                new androidx.media3.datasource.DefaultDataSource.Factory(this, http);
 
         androidx.media3.common.AudioAttributes audioAttributes =
                 new androidx.media3.common.AudioAttributes.Builder()
@@ -373,7 +365,6 @@ public class MediaPlaybackService extends Service {
             player.addListener(mainListener);
             MediaItem mediaItem = new MediaItem.Builder()
                     .setUri(url)
-                    .setCustomCacheKey(shortId(url))
                     .build();
             player.setMediaItem(mediaItem);
             player.setPlayWhenReady(true);
@@ -414,7 +405,6 @@ public class MediaPlaybackService extends Service {
             crossfadePlayer.addListener(crossfadeListener);
             MediaItem mediaItem = new MediaItem.Builder()
                     .setUri(url)
-                    .setCustomCacheKey(shortId(url))
                     .build();
             crossfadePlayer.setMediaItem(mediaItem);
             crossfadePlayer.setPlayWhenReady(true);

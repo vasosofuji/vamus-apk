@@ -443,7 +443,24 @@ def resolve_innertube_stream(video_id):
 
             audio_streams.sort(key=_sort_key, reverse=True)
             chosen = audio_streams[0]
-            return (chosen.get('url'), 'innertube:%s' % label,
+            chosen_url = chosen.get('url')
+
+            # Validate that stream URL is reachable and does not return 403 Forbidden
+            try:
+                chk = http_requests.get(
+                    chosen_url,
+                    headers={'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile)', 'Range': 'bytes=0-1024'},
+                    timeout=2.0,
+                    stream=True
+                )
+                if chk.status_code not in (200, 206):
+                    dlog('  innertube:%s stream check failed HTTP %s' % (label, chk.status_code))
+                    continue
+            except Exception as e_chk:
+                dlog('  innertube:%s stream check error: %s' % (label, e_chk))
+                continue
+
+            return (chosen_url, 'innertube:%s' % label,
                     chosen.get('mimeType', 'audio/mp4'))
         except Exception as e:
             dlog('  innertube:%s FAIL: %s' % (label, str(e)[:120]))
@@ -462,7 +479,7 @@ def resolve_stream_url(video_id, force_refresh=False):
     dlog('STREAM resolve req id=%s (force_refresh=%s)' % (video_id, force_refresh))
     stream_url = source = chosen_fmt = None
 
-    # Tier 1: Direct Innertube Resolution (~0.2-0.6s)
+    # Tier 1: Direct Innertube Resolution with reachability check (~0.2-0.6s)
     try:
         t0 = _time.time()
         stream_url, source, chosen_fmt = resolve_innertube_stream(video_id)
@@ -474,10 +491,10 @@ def resolve_stream_url(video_id, force_refresh=False):
     # Tier 2: yt-dlp with optimized extractor player clients
     if not stream_url:
         ytdlp_client_sets = [
+            ['android'],
+            ['android', 'android_creator'],
             ['android_vr'],
             ['tv_embedded'],
-            ['android'],
-            ['android_creator'],
         ]
 
         try:
@@ -486,7 +503,7 @@ def resolve_stream_url(video_id, force_refresh=False):
                 t0 = _time.time()
                 try:
                     ydl_opts = {
-                        'format': 'bestaudio/best',
+                        'format': '140/251/18/bestaudio/best',
                         'logger': YtDlpLogger(),
                         'quiet': True,
                         'no_warnings': True,
