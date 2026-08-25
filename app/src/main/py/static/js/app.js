@@ -495,7 +495,7 @@ function setupMobilePlayerSwipe() {
 
     container.addEventListener('mousedown', onPointerDown);
     // The container is rebuilt every time the player opens, but these live on
-    // window ΓÇö without detaching the previous pair they piled up one set per
+    // window — without detaching the previous pair they piled up one set per
     // open and every old handler kept running against a detached carousel.
     if (window._mobileSwipeWindowHandlers) {
         window.removeEventListener('mousemove', window._mobileSwipeWindowHandlers.move);
@@ -792,7 +792,7 @@ function createPlaylistAndAddTrack() {
     closeModal();
 }
 
-// Back button handling ΓÇö close overlays first, then navigate back in hash history
+// Back button handling — close overlays first, then navigate back in hash history
 function setupBackButton() {
     document.addEventListener('backbutton', handleBackButton, false);
     window.addEventListener('popstate', function(e) {
@@ -917,7 +917,7 @@ function setupSwipeToQueue() {
         startY = e.touches[0].clientY;
         isSwiping = false;
         activeRowContent.style.transition = 'none';
-        // Start hidden ΓÇö only reveal the "Queue" background while actually swiping.
+        // Start hidden — only reveal the "Queue" background while actually swiping.
         if (swipeBg) swipeBg.style.opacity = '0';
     }, { passive: true });
 
@@ -931,7 +931,7 @@ function setupSwipeToQueue() {
             if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
                 isSwiping = true;
             } else if (Math.abs(diffY) > Math.abs(diffX)) {
-                // Vertical scroll ΓÇö abandon the swipe and clear any reveal.
+                // Vertical scroll — abandon the swipe and clear any reveal.
                 if (swipeBg) swipeBg.style.opacity = '0';
                 activeRowContent = null;
                 return;
@@ -1048,7 +1048,7 @@ function renderQueue() {
     const container = document.getElementById('queue-container');
     if (!container) return;
     // queueChanged fires on every track change and queue edit. Rebuilding a
-    // panel nobody is looking at is pure work ΓÇö toggleQueue() renders on open.
+    // panel nobody is looking at is pure work — toggleQueue() renders on open.
     const overlay = document.getElementById('queue-overlay');
     if (!overlay || overlay.style.display === 'none' || !overlay.style.display) return;
     
@@ -1073,7 +1073,7 @@ function renderQueue() {
                         <div class="queue-item-title">${escapeHtml(Store.currentTrack.title || '')}</div>
                         <div class="queue-item-artist">${escapeHtml(Store.currentTrack.channel?.name || '')}</div>
                     </div>
-                    <span class="queue-playing-icon">ΓÖ½</span>
+                    <span class="queue-playing-icon">♫</span>
                 </div>
             </div>
         `;
@@ -1094,14 +1094,14 @@ function renderQueue() {
         nextUpList.forEach((track, i) => {
             html += `
                 <div class="queue-item draggable" data-queue-index="${i}" draggable="true" style="user-select:none;-webkit-user-select:none;">
-                    <div class="queue-drag-handle" style="cursor:grab; padding: 0 8px 0 2px; color: var(--text-muted); font-size: 1.2rem; font-weight: 700; flex-shrink: 0; touch-action: none;">Γï«Γï«</div>
+                    <div class="queue-drag-handle" style="cursor:grab; padding: 0 8px 0 2px; color: var(--text-muted); font-size: 1.2rem; font-weight: 700; flex-shrink: 0; touch-action: none;">⋮⋮</div>
                     <img class="queue-item-thumb" src="${escapeAttr(getTrackThumbnail(track))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
                     <div class="queue-item-info" onclick="playQueueTrack(${i})">
                         <div class="queue-item-title">${escapeHtml(track.title || '')}</div>
                         <div class="queue-item-artist">${escapeHtml(track.channel?.name || '')}</div>
                     </div>
                     <div class="queue-item-actions">
-                        <button class="queue-action-btn remove" onclick="removeQueueItem(${i})">Γ£ò</button>
+                        <button class="queue-action-btn remove" onclick="removeQueueItem(${i})"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                     </div>
                 </div>
             `;
@@ -1258,7 +1258,7 @@ function updateTrackRowsPlayingState() {
 
         const idxEl = row.querySelector('.col-index');
         if (idxEl) {
-            idxEl.textContent = isPlaying ? 'ΓÖ½' : (row.getAttribute('data-index') || '1');
+            idxEl.textContent = isPlaying ? '♫' : (row.getAttribute('data-index') || '1');
         }
     });
 }
@@ -1503,7 +1503,7 @@ function setup3DTouchMenu() {
     // Capture-phase click listener to suppress single tap right after a long press
     document.addEventListener('click', (e) => {
         if (window._suppressNextClick) {
-            // Clicks inside the menu we just opened are the whole point ΓÇö only
+            // Clicks inside the menu we just opened are the whole point — only
             // swallow the stray tap on the row underneath it.
             if (e.target.closest('.touch-menu-card')) {
                 window._suppressNextClick = false;
@@ -1540,7 +1540,7 @@ function show3DTouchMenu(track, targetEl) {
     let downloadLabel = 'Download for Offline';
     let downloadIcon = ICONS.download;
     if (isDownloading) {
-        downloadLabel = 'DownloadingΓÇª';
+        downloadLabel = 'Downloading…';
         downloadIcon = '<span class="spinner-small" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
     } else if (isDownloaded) {
         downloadLabel = 'Remove Offline Download';
@@ -2454,14 +2454,14 @@ function openAppearanceModal() {
 
     overlay.innerHTML = `<div class="modal-box" id="appearance-modal-box" onclick="event.stopPropagation()" style="max-width:580px;max-height:88vh;overflow-y:auto;padding:1.5rem 1.8rem">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 style="margin:0;font-size:1.2rem">≡ƒÄ¿ Appearance & Customization</h3>
-            <button class="action-btn secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem" onclick="closeModal()">Γ£ò</button>
+            <h3 style="margin:0;font-size:1.2rem">🎨 Appearance & Customization</h3>
+            <button class="action-btn secondary" style="padding:0.3rem 0.7rem;font-size:0.85rem" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
 
         <!-- GLASSMORPHISM & TRANSLUCENCY OPTIONS -->
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);padding:14px;margin-bottom:1.2rem">
             <div style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:0.95rem;color:var(--text-primary);margin-bottom:4px">
-                <span>Γ£¿ Glassmorphism & Translucency Style</span>
+                <span>✨ Glassmorphism & Translucency Style</span>
             </div>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin:0 0 10px 0">Makes app cards, sidebar, and controls translucent frosted glass so your wallpaper & custom background shine through!</p>
             
@@ -2547,7 +2547,7 @@ function openAiRecommendationsModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
-        <h3>≡ƒñû AI Music Recommendations</h3>
+        <h3>🤖 AI Music Recommendations</h3>
         <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Vamus automatically recommends music based on your listening history. Enter your Google Gemini API key to also get an extra AI-powered "AI Picks For You" row on the home screen.</p>
         
         <input class="modal-input" type="password" id="gemini-key-input" value="${escapeHtml(key)}" placeholder="Enter Gemini API key...">
@@ -2566,7 +2566,7 @@ function openPlaybackSettingsModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
-        <h3>≡ƒÄ╡ Playback & Audio Settings</h3>
+        <h3>🎵 Playback & Audio Settings</h3>
         
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;margin-bottom:1rem">
             <div>
@@ -2611,7 +2611,7 @@ function openServerUrlModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
-        <h3>≡ƒöù Server & API Base URL</h3>
+        <h3>🔗 Server & API Base URL</h3>
         <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Set the base URL of your Python Flask server endpoint (e.g. when running local Python in Termux or on a PC).</p>
         
         <input class="modal-input" type="text" id="api-server-url-input" value="${escapeHtml(url)}" placeholder="http://localhost:5000">
@@ -2630,13 +2630,13 @@ function openDeveloperOptionsModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px">
-        <h3>≡ƒ¢á∩╕Å Developer Options</h3>
+        <h3>🛠️ Developer Options</h3>
         <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Advanced diagnostic tools and error logging overlay for debugging.</p>
         
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;margin-bottom:1rem">
             <div>
                 <div style="font-weight:600;color:var(--text-primary)">Floating Debug Button</div>
-                <div style="font-size:0.82rem;color:var(--text-secondary)">Show the red ≡ƒÉ₧ debug logging button</div>
+                <div style="font-size:0.82rem;color:var(--text-secondary)">Show the red 🪲 debug logging button</div>
             </div>
             <label class="toggle-switch">
                 <input type="checkbox" id="dev-debug-toggle" ${Store.developerOptionsEnabled ? 'checked' : ''} onchange="toggleDeveloperDebugButton(this.checked)">
@@ -2677,8 +2677,8 @@ function openAboutModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:400px">
-        <h3>Γä╣∩╕Å About Vamus</h3>
-        <p style="font-size:0.9rem;color:var(--text-primary);margin-top:0.75rem">Vamus ΓÇö Ad-free music streaming & audio player</p>
+        <h3>ℹ️ About Vamus</h3>
+        <p style="font-size:0.9rem;color:var(--text-primary);margin-top:0.75rem">Vamus — Ad-free music streaming & audio player</p>
         <p style="font-size:0.85rem;color:var(--text-secondary);margin-top:0.25rem">Version ${escapeHtml(getAppVersionLabel())} (Flask + ExoPlayer + Capacitor)</p>
         <p style="font-size:0.82rem;color:var(--text-muted);margin-top:0.75rem">Powered by ExoPlayer, YouTube Music API, and custom theme engines.</p>
 
@@ -2694,20 +2694,20 @@ function openDangerZoneModal() {
 
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:440px;border-color:rgba(239,68,68,0.4)">
-        <h3 style="color:var(--danger-color)">ΓÜá∩╕Å Data Management & Danger Zone</h3>
+        <h3 style="color:var(--danger-color)">⚠️ Data Management & Danger Zone</h3>
         
         <div style="margin-top:1rem;padding-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.1)">
-            <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">≡ƒôª Data Backup & Restore</div>
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px">📦 Data Backup & Restore</div>
             <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:12px">Export your playlists, liked songs, and custom theme settings to a JSON backup file or restore them anytime.</div>
             <div style="display:flex;gap:8px">
-                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="exportUserData()">≡ƒôÑ Export Backup</button>
-                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="document.getElementById('import-backup-input').click()">≡ƒôñ Import Backup</button>
+                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="exportUserData()">📥 Export Backup</button>
+                <button class="modal-btn" style="background:var(--surface-color);border:1px solid var(--border-color);color:var(--text-primary);flex:1;font-size:0.85rem" onclick="document.getElementById('import-backup-input').click()">📤 Import Backup</button>
                 <input type="file" id="import-backup-input" accept=".json" style="display:none" onchange="importUserData(event)">
             </div>
         </div>
 
         <div style="margin-top:1rem">
-            <div style="font-weight:600;color:var(--danger-color);margin-bottom:4px">≡ƒöÑ Reset App Data</div>
+            <div style="font-weight:600;color:var(--danger-color);margin-bottom:4px">🔥 Reset App Data</div>
             <p style="font-size:0.82rem;color:var(--text-secondary)">Clear all saved local data including liked songs, playlists, custom themes, wallpapers, and playback history.</p>
         </div>
 
@@ -2778,8 +2778,8 @@ function openPlaylistCustomizerModal(playlistId) {
     overlay.style.display = 'flex';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:460px;padding:1.5rem">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-            <h3 style="margin:0;font-size:1.15rem;color:var(--text-primary)">≡ƒÄ¿ Customize "${escapeHtml(pl.name)}"</h3>
-            <button class="action-btn secondary" style="padding:0.3rem 0.6rem;font-size:0.8rem" onclick="closeModal()">Γ£ò</button>
+            <h3 style="margin:0;font-size:1.15rem;color:var(--text-primary)">🎨 Customize "${escapeHtml(pl.name)}"</h3>
+            <button class="action-btn secondary" style="padding:0.3rem 0.6rem;font-size:0.8rem" onclick="closeModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
         <p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem">Personalize your playlist cover art, header banner image, or accent colors.</p>
 
@@ -2877,8 +2877,8 @@ function openColorWheelModal(colorKey, currentVal) {
     overlay.style.zIndex = '3200';
     overlay.innerHTML = `<div class="modal-box" onclick="event.stopPropagation()" style="max-width:380px;text-align:center;padding:1.5rem">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-            <h3 style="margin:0;font-size:1.1rem;color:var(--text-primary)">≡ƒÄ¿ Select Color</h3>
-            <button class="action-btn secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem" onclick="openAppearanceModal()">Γ£ò</button>
+            <h3 style="margin:0;font-size:1.1rem;color:var(--text-primary)">🎨 Select Color</h3>
+            <button class="action-btn secondary" style="padding:0.2rem 0.5rem;font-size:0.8rem" onclick="openAppearanceModal()">✕</button>
         </div>
 
         <div style="position:relative;width:220px;height:220px;margin:0 auto 1.2rem auto">

@@ -1,7 +1,7 @@
 ﻿// In-app diagnostics panel.
 // Funnels JS errors + key Player events into the Flask /api/debug buffer (which
 // also holds the native MediaPlayer + yt-dlp/Piped/Invidious logs), and renders
-// them all in one time-ordered on-screen panel. Reproduce the bug, tap the ≡ƒÉ₧
+// them all in one time-ordered on-screen panel. Reproduce the bug, tap the 🪲
 // button, screenshot the panel.
 
 window.VamusDebug = {
@@ -88,7 +88,7 @@ window.VamusDebug = {
     _mount() {
         const btn = document.createElement('button');
         btn.id = 'vdbg-btn';
-        btn.textContent = '≡ƒÉ₧';
+        btn.textContent = '🪲';
         btn.title = 'Debug logs';
         const enabled = typeof Store !== 'undefined' && !!Store.developerOptionsEnabled;
         btn.style.cssText =

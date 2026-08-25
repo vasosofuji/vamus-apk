@@ -134,9 +134,9 @@ const Player = {
     // Returns { track } or null if nothing to play.
     //
     // Options:
-    //   honorRepeatOne ΓÇö false for a manual skip, so pressing Next in Repeat
+    //   honorRepeatOne — false for a manual skip, so pressing Next in Repeat
     //                    One moves on instead of replaying the same song.
-    //   commit         ΓÇö true only for the caller that is actually about to
+    //   commit         — true only for the caller that is actually about to
     //                    play. Everything else (carousel art, native "next
     //                    track" hint, the crossfade poll that runs 4x/second)
     //                    peeks, so resolving must not mutate the queue.
@@ -153,7 +153,7 @@ const Player = {
         const curId = Store.currentTrack.id;
         let upcoming = (Store.queue || []).filter(t => t && t.id && t.id !== curId);
 
-        // Queue exhausted but Repeat All is on ΓÇö wrap around the context.
+        // Queue exhausted but Repeat All is on — wrap around the context.
         if (upcoming.length === 0 && Store.repeat === 'all') {
             const wrap = this._contextWrapOrder(curId);
             if (wrap.length === 0) return null;
@@ -179,7 +179,7 @@ const Player = {
         return { track: upcoming[0] };
     },
 
-    // The playback context ΓÇö the list Repeat All wraps around ΓÇö with any
+    // The playback context — the list Repeat All wraps around — with any
     // duplicate or malformed entries dropped. Store.originalQueue is written
     // from several places, so every reader normalises through here.
     _contextTracks() {
@@ -257,7 +257,7 @@ const Player = {
     // This runs on every track change, every queue edit and every
     // shuffle/repeat toggle. Serialising a 500-track "Play All" context each
     // time meant ~150KB of JSON built on the UI thread, marshalled across the
-    // bridge and re-parsed into objects in Java ΓÇö a frame hitch at exactly the
+    // bridge and re-parsed into objects in Java — a frame hitch at exactly the
     // moment the UI is busiest. The context is byte-identical for a whole
     // listening session, so both payloads are compared against the last push
     // and the bridge call is skipped outright when nothing changed.
@@ -316,7 +316,7 @@ const Player = {
                 if (t && t.id && !seen.has(t.id)) { seen.add(t.id); dedup.push(t); }
             });
             const idx = dedup.findIndex(t => t.id === track.id);
-            // Playing track 5 of a playlist must continue with 6, 7, 8 ΓÇö not
+            // Playing track 5 of a playlist must continue with 6, 7, 8 — not
             // jump back to track 1.
             Store.queue = idx >= 0 ? dedup.slice(idx + 1) : dedup.filter(t => t.id !== track.id);
             Store.originalQueue = dedup;
@@ -340,7 +340,7 @@ const Player = {
         }
 
         // The track has nothing to do with the remembered context, so drop it.
-        // Otherwise Repeat All resurrects an unrelated old list ΓÇö the classic
+        // Otherwise Repeat All resurrects an unrelated old list — the classic
         // "my queue suddenly started playing my Liked Songs".
         Store.originalQueue = [track, ...Store.queue];
     },
@@ -618,7 +618,7 @@ const Player = {
         }
         Store.nextAutoTrack = null;
 
-        // Queue is empty ΓÇö manual skip next fetches and plays a similar song immediately
+        // Queue is empty — manual skip next fetches and plays a similar song immediately
         if (Store.currentTrack && !this._fetchingRadio) {
             this._fetchRadioAndPlay();
         }
@@ -722,7 +722,7 @@ const Player = {
     },
 
     onEnded() {
-        // If we're in a crossfade, the old track ended naturally ΓÇö just clean up
+        // If we're in a crossfade, the old track ended naturally — just clean up
         if (this._isCrossfading) return;
 
         if (Store.repeat === 'one' && Store.currentTrack) {
@@ -977,7 +977,7 @@ const Player = {
         } catch (e) {}
     },
 
-    // Native advanced on its own (screen off / JS throttled) ΓÇö mirror it in JS.
+    // Native advanced on its own (screen off / JS throttled) — mirror it in JS.
     // `info` carries the track native actually started, so a song JS has never
     // seen (native's own radio pick) can still be adopted. Without it JS kept
     // the previous track as "current" and the UI, queue and notification all
@@ -1000,7 +1000,7 @@ const Player = {
         Store.currentTrack = track;
         Store.isPlaying = true;
         // Native drives playback through this path, so the Repeat All wrap has
-        // to be committed here too ΓÇö peeking alone left Store.queue empty and
+        // to be committed here too — peeking alone left Store.queue empty and
         // the list never progressed past its first two tracks.
         if (Store.queue.length === 0 && Store.repeat === 'all') {
             this._commitContextWrap(track.id);
@@ -1094,7 +1094,7 @@ const Player = {
             current = window.AndroidMediaSession.getCurrentPosition() / 1000;
             duration = window.AndroidMediaSession.getDuration() / 1000;
             // Transport controls can pause or resume while this timer is
-            // throttled, so trust the player over our own last-known flag ΓÇö
+            // throttled, so trust the player over our own last-known flag —
             // otherwise the first tick after waking pushed a stale state and
             // the notification flipped back to the wrong icon.
             if (typeof window.AndroidMediaSession.isPlayingNative === 'function') {
@@ -1171,7 +1171,7 @@ const Player = {
                     if (this._crossfadeTrackId !== next.track.id) {
                         this._playTrackCrossfade(next.track);
                     }
-                    // A queued track exists ΓÇö never fall through to radio.
+                    // A queued track exists — never fall through to radio.
                     return;
                 }
 

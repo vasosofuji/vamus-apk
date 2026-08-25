@@ -280,7 +280,7 @@ const Store = {
     // id lookups for likedSongs / downloadedTracks.
     //
     // Both were linear `.some()` scans, and both are called per rendered row
-    // and once per track when the queue is mirrored to native ΓÇö so a large
+    // and once per track when the queue is mirrored to native — so a large
     // library turned every render and every track change into tens of
     // thousands of string comparisons. The index rebuilds itself whenever the
     // array is replaced or changes length, so callers can keep assigning these

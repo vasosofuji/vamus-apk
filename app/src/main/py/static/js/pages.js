@@ -18,7 +18,7 @@ async function handleTrackDownloadClick(track, btnEl) {
             showToast('Download removed', 'info');
             if (typeof Player !== 'undefined' && Player.updatePlayerUI) Player.updatePlayerUI();
             // Only the offline pages actually show download state, and
-            // Router.render() jumps the list back to the top ΓÇö don't do it to
+            // Router.render() jumps the list back to the top — don't do it to
             // someone who is halfway down a search page.
             if (Router.currentRoute === '/downloads' || Router.currentRoute === '/library') {
                 Router.render(Router.currentRoute);
@@ -32,7 +32,7 @@ async function handleTrackDownloadClick(track, btnEl) {
         btnEl.classList.add('downloading');
         btnEl.innerHTML = '<span class="spinner-small" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite"></span>';
     }
-    showToast(`Downloading "${track.title || 'track'}"ΓÇª`, 'info');
+    showToast(`Downloading "${track.title || 'track'}"…`, 'info');
     try {
         const success = await Store.downloadTrack(track);
         if (success) {
@@ -69,7 +69,7 @@ function getTrackThumbnail(t) {
 
 // A second, per-row long-press handler used to live here. It fired at the same
 // 450ms as the global one in setup3DTouchMenu(), so a single hold opened two
-// stacked menus ΓÇö and because their buttons don't line up, tapping "Like" on
+// stacked menus — and because their buttons don't line up, tapping "Like" on
 // the visible card could hit "Download for Offline" on the one underneath.
 // setup3DTouchMenu() is now the single owner of the track context menu; the
 // right-click path routes into it too.
@@ -178,7 +178,7 @@ function renderTrackList(tracks, container, options = {}) {
         html += `<div class="track-row ${isPlaying ? 'playing' : ''}" data-list-id="${listId}" data-list-idx="${i}" data-track-id="${escapeAttr(String(track.id || ''))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="playTrackFromList('${listId}', ${i})">
-                <span class="col-index">${isPlaying ? 'ΓÖ½' : (i + 1)}</span>
+                <span class="col-index">${isPlaying ? '♫' : (i + 1)}</span>
                 <div class="col-title">
                     <img class="row-thumb" src="${escapeAttr(getTrackThumbnail(track))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="">
                     <div class="row-text-group">
@@ -276,7 +276,7 @@ function renderHomePage(container) {
         html += '</div></section>';
     }
     
-    // Recommendations ΓÇö seeded from user listening history + library, or default trending music for new users
+    // Recommendations — seeded from user listening history + library, or default trending music for new users
     const seedTracks = [...Store.recentlyPlayed, ...Store.likedSongs];
     const seedIds = [...new Set(seedTracks.map(t => t.id).filter(Boolean))].slice(0, 5);
     const uniqueArtists = [...new Set(seedTracks.map(t => t.channel?.name).filter(Boolean))].slice(0, 5);
@@ -322,7 +322,7 @@ function renderHomePage(container) {
     // Load recommendations (cached or fresh)
     loadHomeRecommendations();
 
-    // Fetch AI recs async ΓÇö only when the user has configured a Gemini key
+    // Fetch AI recs async — only when the user has configured a Gemini key
     if (hasSeeds && geminiKey && uniqueArtists.length > 0) {
         fetchWithRetry(getApiUrl(`/api/ai-recommend?artistNames=${encodeURIComponent(uniqueArtists.join(','))}&apiKey=${encodeURIComponent(geminiKey)}`))
             .then(r => r.json())
@@ -441,7 +441,7 @@ function renderSearchPage(container, path) {
         <form onsubmit="event.preventDefault(); handleSearchPageSubmit();">
             <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <input id="search-page-input" type="text" value="${escapeHtml(isCategory ? '' : query)}" placeholder="Search songs, artists..." autocomplete="off" oninput="handleSearchPageInput(event)">
-            <button id="search-page-clear-btn" type="button" class="search-page-clear-btn ${query ? 'show' : ''}" onclick="clearSearchPageInput()">Γ£ò</button>
+            <button id="search-page-clear-btn" type="button" class="search-page-clear-btn ${query ? 'show' : ''}" onclick="clearSearchPageInput()">✕</button>
         </form>
     </div>`;
     
@@ -537,7 +537,7 @@ function renderLibraryPage(container) {
             <div class="settings-menu-title" style="font-size:1.1rem;font-weight:700">Downloaded Songs (Offline Travels)</div>
             <div class="settings-menu-desc">${Store.downloadedTracks.length} songs downloaded for offline listening</div>
         </div>
-        <div style="font-size:1.2rem;color:var(--text-muted)">ΓåÆ</div>
+        <div style="font-size:1.2rem;color:var(--text-muted)">→</div>
     </div>`;
 
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
@@ -589,8 +589,8 @@ function renderDownloadedPage(container) {
     
     if (Store.downloadedTracks.length > 0) {
         html += '<div class="hero-actions" style="display:flex;gap:1rem;margin-bottom:1.5rem">';
-        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.downloadedTracks[0], Store.downloadedTracks)">Γû╢ Play All</button>`;
-        html += `<button class="action-btn secondary" onclick="Player.playTrack(Store.downloadedTracks[Math.floor(Math.random()*Store.downloadedTracks.length)], Store.downloadedTracks)">Γñ« Shuffle</button>`;
+        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.downloadedTracks[0], Store.downloadedTracks)">▶ Play All</button>`;
+        html += `<button class="action-btn secondary" onclick="Player.playTrack(Store.downloadedTracks[Math.floor(Math.random()*Store.downloadedTracks.length)], Store.downloadedTracks)">🔀 Shuffle</button>`;
         html += '</div>';
         html += '<div id="downloaded-tracks"></div>';
     } else {
@@ -629,7 +629,7 @@ function renderLikedPage(container) {
     
     if (Store.likedSongs.length > 0) {
         html += '<div class="hero-actions">';
-        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.likedSongs[0], Store.likedSongs)">Γû╢ Play All</button>`;
+        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.likedSongs[0], Store.likedSongs)">▶ Play All</button>`;
         html += '</div>';
         html += '<div id="liked-tracks"></div>';
     } else {
@@ -678,9 +678,9 @@ function renderPlaylistPage(container, id) {
     
     html += '<div class="hero-actions playlist-actions-row">';
     if (pl.tracks.length > 0) {
-        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.playlists.find(p=>p.id==='${pl.id}').tracks[0], Store.playlists.find(p=>p.id==='${pl.id}').tracks)">Γû╢ Play All</button>`;
+        html += `<button class="action-btn primary" onclick="Player.playTrack(Store.playlists.find(p=>p.id==='${pl.id}').tracks[0], Store.playlists.find(p=>p.id==='${pl.id}').tracks)">▶ Play All</button>`;
     }
-    html += `<button class="action-btn secondary" onclick="openPlaylistCustomizerModal('${pl.id}')">≡ƒÄ¿ Customize</button>`;
+    html += `<button class="action-btn secondary" onclick="openPlaylistCustomizerModal('${pl.id}')">🎨 Customize</button>`;
     html += `<button class="action-btn danger" onclick="if(confirm('Delete this playlist?')){Store.deletePlaylist('${pl.id}');navigate('/library')}">Delete</button>`;
     html += '</div>';
     
@@ -730,8 +730,8 @@ function renderArtistPage(container, id) {
             // Actions
             if (artist.songs && artist.songs.length > 0) {
                 html += '<div class="hero-actions">';
-                html += `<button class="action-btn primary" onclick="Player.playTrack(window._artistSongs[0], window._artistSongs)">Γû╢ Play</button>`;
-                html += `<button class="action-btn secondary" onclick="Player.playTrack(window._artistSongs[Math.floor(Math.random()*window._artistSongs.length)], window._artistSongs)">Γñ« Shuffle</button>`;
+                html += `<button class="action-btn primary" onclick="Player.playTrack(window._artistSongs[0], window._artistSongs)">▶ Play</button>`;
+                html += `<button class="action-btn secondary" onclick="Player.playTrack(window._artistSongs[Math.floor(Math.random()*window._artistSongs.length)], window._artistSongs)">🔀 Shuffle</button>`;
                 html += '</div>';
             }
             
@@ -801,15 +801,15 @@ function renderAlbumPage(container, id) {
                     <h1>${escapeHtml(album.name || '')}</h1>
                     <p class="hero-meta">
                         ${album.artist?.name ? `<a href="#/artist/${encodeURIComponent(album.artist.artistId || album.artist.name || '')}">${escapeHtml(album.artist.name)}</a>` : ''}
-                        ${album.year ? ` ΓÇó ${album.year}` : ''}
-                        ${album.songs ? ` ΓÇó ${album.songs.length} songs` : ''}
+                        ${album.year ? ` • ${album.year}` : ''}
+                        ${album.songs ? ` • ${album.songs.length} songs` : ''}
                     </p>
                 </div>
             </div>`;
             
             if (album.songs && album.songs.length > 0) {
                 html += '<div class="hero-actions">';
-                html += `<button class="action-btn primary" onclick="Player.playTrack(window._albumSongs[0], window._albumSongs)">Γû╢ Play All</button>`;
+                html += `<button class="action-btn primary" onclick="Player.playTrack(window._albumSongs[0], window._albumSongs)">▶ Play All</button>`;
                 html += '</div>';
                 html += '<div id="album-tracks"></div>';
             }
@@ -841,7 +841,7 @@ function renderSettingsPage(container) {
     
     html += `<div class="settings-menu-grid">
         <div class="settings-menu-card" onclick="openAppearanceModal()">
-            <div class="settings-menu-icon">≡ƒÄ¿</div>
+            <div class="settings-menu-icon">🎨</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">Appearance & Customization</div>
                 <div class="settings-menu-desc">Themes, custom color pickers, and background wallpapers.</div>
@@ -849,7 +849,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" onclick="openAiRecommendationsModal()">
-            <div class="settings-menu-icon">≡ƒñû</div>
+            <div class="settings-menu-icon">🤖</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">AI Recommendations</div>
                 <div class="settings-menu-desc">Set Google Gemini API key for extra AI picks.</div>
@@ -857,7 +857,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" onclick="openPlaybackSettingsModal()">
-            <div class="settings-menu-icon">≡ƒÄ╡</div>
+            <div class="settings-menu-icon">🎵</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">Playback & Audio</div>
                 <div class="settings-menu-desc">Autoplay and crossfade transition duration.</div>
@@ -865,7 +865,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" onclick="openServerUrlModal()">
-            <div class="settings-menu-icon">≡ƒöù</div>
+            <div class="settings-menu-icon">🔗</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">Server & API URL</div>
                 <div class="settings-menu-desc">Configure Flask backend endpoint.</div>
@@ -873,7 +873,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" onclick="openDeveloperOptionsModal()">
-            <div class="settings-menu-icon">≡ƒ¢á∩╕Å</div>
+            <div class="settings-menu-icon">🛠️</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">Developer Options</div>
                 <div class="settings-menu-desc">Enable on-screen diagnostic logging panel & debug tools.</div>
@@ -881,7 +881,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" onclick="openAboutModal()">
-            <div class="settings-menu-icon">Γä╣∩╕Å</div>
+            <div class="settings-menu-icon">ℹ️</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title">About Vamus</div>
                 <div class="settings-menu-desc">Version details and ad-free music streaming info.</div>
@@ -889,7 +889,7 @@ function renderSettingsPage(container) {
         </div>
 
         <div class="settings-menu-card" style="border-color:rgba(239,68,68,0.3)" onclick="openDangerZoneModal()">
-            <div class="settings-menu-icon" style="background:rgba(239,68,68,0.1);color:var(--danger-color)">ΓÜá∩╕Å</div>
+            <div class="settings-menu-icon" style="background:rgba(239,68,68,0.1);color:var(--danger-color)">⚠️</div>
             <div class="settings-menu-info">
                 <div class="settings-menu-title" style="color:var(--danger-color)">Danger Zone</div>
                 <div class="settings-menu-desc">Clear saved data, playlists, and app cache.</div>
@@ -905,14 +905,14 @@ function saveGeminiKey() {
     const key = document.getElementById('gemini-key-input').value.trim();
     localStorage.setItem('geminiApiKey', key);
     const msg = document.getElementById('gemini-save-msg');
-    if (msg) { msg.textContent = 'Γ£ô Saved!'; setTimeout(() => msg.textContent = '', 2000); }
+    if (msg) { msg.textContent = '✓ Saved!'; setTimeout(() => msg.textContent = '', 2000); }
 }
 
 function saveApiServerUrl() {
     const url = document.getElementById('api-server-url-input').value.trim();
     localStorage.setItem('apiServerUrl', url);
     const msg = document.getElementById('api-server-save-msg');
-    if (msg) { msg.textContent = 'Γ£ô Saved!'; setTimeout(() => msg.textContent = '', 2000); }
+    if (msg) { msg.textContent = '✓ Saved!'; setTimeout(() => msg.textContent = '', 2000); }
 }
 
 function toggleAutoplay() {
