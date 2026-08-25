@@ -57,7 +57,7 @@ public class MediaPlaybackService extends Service {
             try {
                 java.io.File cacheDir = new java.io.File(getCacheDir(), "media_cache");
                 LeastRecentlyUsedCacheEvictor evictor = new LeastRecentlyUsedCacheEvictor(250 * 1024 * 1024L); // 250 MB LRU disk cache
-                downloadCache = new SimpleCache(cacheDir, evictor, new StandaloneDatabaseProvider(this));
+                downloadCache = new SimpleCache(cacheDir, evictor, new StandaloneDatabaseProvider(getApplicationContext()));
             } catch (Exception e) {
                 dbg("Failed to initialize SimpleCache: " + e);
             }
@@ -106,8 +106,11 @@ public class MediaPlaybackService extends Service {
     }
 
     // ----------------------------------------------------------------- logging
+    private static final java.util.concurrent.ExecutorService dbgExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
     static void dbg(final String msg) {
-        new Thread(new Runnable() {
+        dbgExecutor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -121,7 +124,7 @@ public class MediaPlaybackService extends Service {
                     c.disconnect();
                 } catch (Exception ignored) {}
             }
-        }).start();
+        });
     }
 
     private static String shortId(String url) {
@@ -251,20 +254,21 @@ public class MediaPlaybackService extends Service {
 
     // ----------------------------------------------------------- ExoPlayer
     private ExoPlayer buildPlayer() {
-        // Fast playback startup (1000ms buffer) and fast re-buffering on seek (300ms buffer instead of 2000ms).
+        // Fast playback startup (1000ms buffer) and solid re-buffering (1000ms buffer with 30s back-buffer for instant back-seeking).
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                         /* minBufferMs= */ 15000,
                         /* maxBufferMs= */ 60000,
                         /* bufferForPlaybackMs= */ 1000,
-                        /* bufferForPlaybackAfterRebufferMs= */ 300)
+                        /* bufferForPlaybackAfterRebufferMs= */ 1000)
+                .setBackBuffer(30000, true)
                 .build();
 
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(15000)
-                .setUserAgent("Mozilla/5.0");
+                .setUserAgent("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36");
 
         SimpleCache cache = getCache();
         androidx.media3.datasource.DataSource.Factory dataSourceFactory;
@@ -277,9 +281,18 @@ public class MediaPlaybackService extends Service {
             dataSourceFactory = http;
         }
 
+        androidx.media3.common.AudioAttributes audioAttributes =
+                new androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build();
+
         ExoPlayer p = new ExoPlayer.Builder(this)
                 .setLoadControl(loadControl)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(dataSourceFactory))
+                .setAudioAttributes(audioAttributes, true)
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_NETWORK)
                 .build();
         p.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         p.setVolume(currentVolume);
@@ -358,7 +371,11 @@ public class MediaPlaybackService extends Service {
         try {
             player = buildPlayer();
             player.addListener(mainListener);
-            player.setMediaItem(MediaItem.fromUri(url));
+            MediaItem mediaItem = new MediaItem.Builder()
+                    .setUri(url)
+                    .setCustomCacheKey(shortId(url))
+                    .build();
+            player.setMediaItem(mediaItem);
             player.setPlayWhenReady(true);
             player.prepare();
             startPositionTicker();
@@ -395,7 +412,11 @@ public class MediaPlaybackService extends Service {
                 }
             };
             crossfadePlayer.addListener(crossfadeListener);
-            crossfadePlayer.setMediaItem(MediaItem.fromUri(url));
+            MediaItem mediaItem = new MediaItem.Builder()
+                    .setUri(url)
+                    .setCustomCacheKey(shortId(url))
+                    .build();
+            crossfadePlayer.setMediaItem(mediaItem);
             crossfadePlayer.setPlayWhenReady(true);
             crossfadePlayer.prepare();
         } catch (Exception e) {
@@ -532,10 +553,9 @@ public class MediaPlaybackService extends Service {
                 : 0;
         currentTrackStartMs = 0;
 
-        // Advance rather than rewind when the track actually reached its end, or
-        // when it played long enough that a failure is unlikely to be a bad
-        // stream URL.
-        boolean reallyPlayed = reachedEnd || played >= MIN_PLAYED_MS_FOR_SUCCESS;
+        // Advance rather than rewind when the track actually reached its end,
+        // and only when it did NOT encounter an error.
+        boolean reallyPlayed = !isError && (reachedEnd || played >= MIN_PLAYED_MS_FOR_SUCCESS);
         dbg("finished isError=" + isError + " played=" + played + "ms"
                 + " reachedEnd=" + reachedEnd + " reallyPlayed=" + reallyPlayed
                 + " sameRetry=" + sameTrackRetries + " skips=" + consecutiveSkips);
@@ -549,9 +569,14 @@ public class MediaPlaybackService extends Service {
 
         if (currentUrl != null && sameTrackRetries < MAX_SAME_TRACK_RETRIES) {
             sameTrackRetries++;
-            final String url = currentUrl;
+            // Append refresh=1 to force backend cache eviction on retry
+            String retryUrl = currentUrl;
+            if (!retryUrl.contains("refresh=1") && !retryUrl.contains("nocache=1")) {
+                retryUrl += (retryUrl.contains("?") ? "&" : "?") + "refresh=1";
+            }
+            final String urlToPlay = retryUrl;
             scheduleAction(new Runnable() {
-                @Override public void run() { startPlayback(url); }
+                @Override public void run() { startPlayback(urlToPlay); }
             });
             return;
         }
@@ -748,10 +773,18 @@ public class MediaPlaybackService extends Service {
                     if (currentUrl == null) return;
                     final String shortIdStr = shortId(currentUrl);
                     rememberNativelyPlayed(shortIdStr);
-                    String u = "http://127.0.0.1:5000/api/radio?id=" + java.net.URLEncoder.encode(shortIdStr, "UTF-8");
+
+                    StringBuilder excluded = new StringBuilder();
+                    for (String pid : nativelyPlayedTrackIds) {
+                        if (excluded.length() > 0) excluded.append(",");
+                        excluded.append(pid);
+                    }
+
+                    String u = "http://127.0.0.1:5000/api/radio?id=" + java.net.URLEncoder.encode(shortIdStr, "UTF-8")
+                            + "&excludeIds=" + java.net.URLEncoder.encode(excluded.toString(), "UTF-8");
                     java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
-                    conn.setConnectTimeout(4000);
-                    conn.setReadTimeout(4000);
+                    conn.setConnectTimeout(6000);
+                    conn.setReadTimeout(6000);
                     if (conn.getResponseCode() == 200) {
                         java.io.InputStream is = conn.getInputStream();
                         java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, "UTF-8"));

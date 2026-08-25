@@ -23,18 +23,30 @@ allprojects {
         google()
         mavenCentral()
     }
+    layout.buildDirectory.set(file("C:/Users/matej/.vamus_build/" + (project == rootProject ? "root" : project.name)))
+
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.android {
+                compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+        }
+    }
 
     plugins.withId("com.android.application") {
         java {
             toolchain {
-                languageVersion = JavaLanguageVersion.of(21)
+                languageVersion = JavaLanguageVersion.of(17)
             }
         }
     }
     plugins.withId("com.android.library") {
         java {
             toolchain {
-                languageVersion = JavaLanguageVersion.of(21)
+                languageVersion = JavaLanguageVersion.of(17)
             }
         }
     }

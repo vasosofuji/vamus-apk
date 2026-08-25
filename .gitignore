@@ -105,6 +105,8 @@ app/src/main/res/xml/config.xml
 .env.*
 app/src/main/python/.env
 app/src/main/python/.env.*
+app/src/main/py/.env
+app/src/main/py/.env.*
 
 # Keystore files and credentials
 *.jks
@@ -118,7 +120,11 @@ __pycache__/
 *.pyd
 .pytest_cache/
 
-# Local instruction files
+# Local build and instruction files
+.gradle_build/
+.gradle_home/
+app/build_output/
 UPDATEINSTRUCTIONS.txt
 vamus_user_data.json
 app/src/main/python/downloads/
+app/src/main/py/downloads/

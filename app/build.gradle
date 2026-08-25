@@ -8,8 +8,8 @@ android {
         applicationId "com.matej.vamus"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 20
-        versionName "1.0.19"
+        versionCode 22
+        versionName "1.0.21"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -33,7 +33,11 @@ android {
 
     sourceSets {
         main {
+            assets {
+                srcDirs = ["src/main/py/static", "src/main/assets"]
+            }
             python {
+                srcDirs = ["src/main/py"]
                 // Never package secrets (e.g. a developer's local Gemini API
                 // key) into the APK. AI recommendations are opt-in via a key the
                 // user enters in Settings, so no .env is needed at runtime.

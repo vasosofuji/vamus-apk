@@ -532,18 +532,21 @@ public class MainActivity extends BridgeActivity {
         showOrUpdateNotification(isPlaying);
 
         if (thumbUrl != null && (thumbUrl.startsWith("http://") || thumbUrl.startsWith("https://"))) {
+            final String targetThumb = thumbUrl;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        InputStream in = new URL(thumbUrl).openStream();
+                        InputStream in = new URL(targetThumb).openStream();
                         final Bitmap bmp = BitmapFactory.decodeStream(in);
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                currentArtwork = bmp;
-                                setMetadataOnSession();
-                                showOrUpdateNotification(isPlaying);
+                                if (targetThumb.equals(currentThumbUrl)) {
+                                    currentArtwork = bmp;
+                                    setMetadataOnSession();
+                                    showOrUpdateNotification(isPlaying);
+                                }
                             }
                         });
                     } catch (Exception e) {
