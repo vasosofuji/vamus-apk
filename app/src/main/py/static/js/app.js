@@ -1,4 +1,4 @@
-﻿// App initialization
+// App initialization
 window._lyricsOpenedFromPlayer = false;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -571,6 +571,13 @@ function updateMobilePlayerUI() {
         likeBtn.innerHTML = liked ? ICONS.heartFilled : ICONS.heart;
     }
 
+    const dlBtn = document.getElementById('mobile-download-btn');
+    if (dlBtn) {
+        const isDl = Store.isDownloaded(track.id);
+        dlBtn.classList.toggle('active', isDl);
+        dlBtn.innerHTML = isDl ? ICONS.downloadCheck : ICONS.download;
+    }
+
     // Now that this patches the overlay in place instead of rebuilding it, the
     // queue indicator has to be refreshed here too.
     const queueBtn = document.getElementById('mobile-queue-btn');
@@ -697,6 +704,9 @@ function showMobilePlayer() {
                 <button class="btn-icon ${Store.queue && Store.queue.length > 0 ? 'active' : ''}" id="mobile-queue-btn" onclick="toggleQueue()" title="Queue">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6M21 6h-3M21 15h-3"/><circle cx="14" cy="15" r="2"/><circle cx="14" cy="6" r="2"/><path d="M3 6h6M3 12h12M3 18h12"/></svg>
                 </button>
+                <button class="btn-icon ${Store.isDownloaded(track.id) ? 'active' : ''}" id="mobile-download-btn" onclick="downloadCurrentTrack(this)" title="Download" style="display:flex;align-items:center;justify-content:center">
+                    ${Store.isDownloaded(track.id) ? ICONS.downloadCheck : ICONS.download}
+                </button>
                 <button class="btn-icon" onclick="toggleLyrics()" title="Lyrics">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
                 </button>
@@ -714,10 +724,7 @@ async function downloadCurrentTrack(btnEl) {
     if (!Store.currentTrack || !Store.currentTrack.id) return;
     const track = Store.currentTrack;
     await handleTrackDownloadClick(track, btnEl);
-    const overlay = document.getElementById('mobile-player-overlay');
-    if (overlay && overlay.style.display === 'flex') {
-        showMobilePlayer();
-    }
+    updateMobilePlayerUI();
 }
 
 function navigateToCurrentArtist(event) {

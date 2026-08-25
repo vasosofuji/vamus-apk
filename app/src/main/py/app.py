@@ -202,18 +202,85 @@ def api_search():
         yt = YTMusic()
 
         if search_type == 'artists':
-            results = yt.search(q, filter='artists')
             mapped = []
-            for a in results:
-                raw_thumb = a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else ''
-                if raw_thumb and raw_thumb.startswith('//'):
-                    raw_thumb = 'https:' + raw_thumb
-                mapped.append({
-                    'id': a.get('browseId'),
-                    'name': a.get('artist') or a.get('title') or '',
-                    'thumbnail': raw_thumb,
-                    'type': 'artist',
-                })
+            seen_names = set()
+            seen_ids = set()
+
+            # 1. Search general query to capture exact artist matches & albums
+            try:
+                gen_results = yt.search(q)
+                for r in gen_results:
+                    if r.get('resultType') == 'artist':
+                        name = r.get('artist') or r.get('title') or ''
+                        bid = r.get('browseId') or name
+                        if name and name.lower() not in seen_names:
+                            seen_names.add(name.lower())
+                            if bid: seen_ids.add(bid)
+                            raw_thumb = r.get('thumbnails')[-1].get('url') if r.get('thumbnails') else ''
+                            if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
+                            mapped.append({
+                                'id': bid,
+                                'name': name,
+                                'thumbnail': raw_thumb,
+                                'type': 'artist',
+                            })
+            except Exception:
+                pass
+
+            # 2. Extract artists from top song matches (essential for Cyrillic/indie artists)
+            try:
+                song_results = yt.search(q, filter='songs')[:15]
+                for song in song_results:
+                    for a in song.get('artists', []):
+                        name = a.get('name')
+                        bid = a.get('id') or name
+                        if name and name.lower() not in seen_names:
+                            seen_names.add(name.lower())
+                            if bid: seen_ids.add(bid)
+                            raw_thumb = song.get('thumbnails')[-1].get('url') if song.get('thumbnails') else ''
+                            if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
+                            mapped.append({
+                                'id': bid,
+                                'name': name,
+                                'thumbnail': raw_thumb,
+                                'type': 'artist',
+                            })
+            except Exception:
+                pass
+
+            # 3. Standard artists filter search
+            try:
+                results = yt.search(q, filter='artists')
+                for a in results:
+                    name = a.get('artist') or a.get('title') or ''
+                    bid = a.get('browseId') or name
+                    if name and name.lower() not in seen_names:
+                        seen_names.add(name.lower())
+                        if bid: seen_ids.add(bid)
+                        raw_thumb = a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else ''
+                        if raw_thumb and raw_thumb.startswith('//'): raw_thumb = 'https:' + raw_thumb
+                        mapped.append({
+                            'id': bid,
+                            'name': name,
+                            'thumbnail': raw_thumb,
+                            'type': 'artist',
+                        })
+            except Exception:
+                pass
+
+            # Rank: exact match first, then prefix match, then substring, then others
+            q_clean = q.lower().strip()
+            def _artist_rank(item):
+                n = (item.get('name') or '').lower().strip()
+                if n == q_clean:
+                    return 0
+                if n.startswith(q_clean):
+                    return 1
+                if q_clean in n:
+                    return 2
+                return 3
+
+            mapped.sort(key=_artist_rank)
             return jsonify(mapped)
 
         else:  # songs
@@ -238,6 +305,7 @@ def api_search():
                                 'thumbnail': song.get('thumbnails')[-1].get('url') if song.get('thumbnails') else '',
                                 'durationRaw': song.get('duration') or '',
                                 'durationInSec': song.get('duration_seconds') or 0,
+                                'views': song.get('views') or '',
                                 'artistId': artist_id,
                                 'channel': {'name': artist_name}
                             })
@@ -741,6 +809,7 @@ def api_debug_push():
 @app.route('/api/artist')
 def api_artist():
     artist_id = request.args.get('id', '').strip()
+    view_all = request.args.get('all') == '1'
     if not artist_id:
         return jsonify({'error': 'Query parameter id is required'}), 400
 
@@ -749,54 +818,129 @@ def api_artist():
         yt = YTMusic()
 
         c_id = artist_id
-        if not artist_id.startswith('UC') and not artist_id.startswith('MP'):
-            search_results = yt.search(artist_id, filter='artists')
-            if not search_results:
-                return jsonify({'error': 'Artist not found'}), 404
-            c_id = search_results[0].get('browseId')
+        artist_data = None
+        
+        # If artist_id is a channel ID (starts with UC or MP)
+        if artist_id.startswith('UC') or artist_id.startswith('MP'):
+            try:
+                artist_data = yt.get_artist(artist_id)
+            except Exception as e:
+                dlog(f"yt.get_artist({artist_id}) error: {e}")
+                artist_data = None
 
-        artist = yt.get_artist(c_id)
+        if not artist_data and not (artist_id.startswith('UC') or artist_id.startswith('MP')):
+            # Try searching for artist with name match verification
+            try:
+                search_results = yt.search(artist_id, filter='artists')
+                matched_id = None
+                for a in search_results:
+                    a_name = (a.get('artist') or a.get('title') or '').lower().strip()
+                    if artist_id.lower().strip() == a_name or artist_id.lower().strip() in a_name:
+                        matched_id = a.get('browseId')
+                        break
+                if matched_id:
+                    c_id = matched_id
+                    artist_data = yt.get_artist(c_id)
+            except Exception as e:
+                dlog(f"yt search/get_artist fallback error: {e}")
+                artist_data = None
 
         songs = []
-        raw_songs = artist.get('songs', {}).get('results', [])
-        for s in raw_songs[:30]:
-            songs.append({
-                'id': s.get('videoId'),
-                'title': s.get('title'),
-                'url': f"https://music.youtube.com/watch?v={s.get('videoId')}",
-                'thumbnail': s.get('thumbnails')[-1].get('url') if s.get('thumbnails') else '',
-                'durationRaw': s.get('duration') or '',
-                'durationInSec': s.get('duration_seconds') or 0,
-                'artistId': c_id,
-                'channel': {'name': artist.get('name', 'Unknown')}
-            })
-
         top_albums = []
-        raw_albums = artist.get('albums', {}).get('results', [])
-        for a in raw_albums[:10]:
-            top_albums.append({
-                'id': a.get('browseId'),
-                'name': a.get('title'),
-                'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
-                'year': a.get('year') or '',
-                'type': 'Album'
-            })
-
         singles = []
-        raw_singles = artist.get('singles', {}).get('results', [])
-        for a in raw_singles[:10]:
-            singles.append({
-                'id': a.get('browseId'),
-                'name': a.get('title'),
-                'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
-                'year': a.get('year') or '',
-                'type': 'Single'
-            })
+        artist_name = artist_id
+        avatar_url = ''
+
+        if artist_data:
+            artist_name = artist_data.get('name') or artist_id
+            avatar_url = artist_data.get('thumbnails')[-1].get('url') if artist_data.get('thumbnails') else ''
+            raw_songs = artist_data.get('songs', {}).get('results', [])
+            for s in raw_songs:
+                songs.append({
+                    'id': s.get('videoId'),
+                    'title': s.get('title'),
+                    'url': f"https://music.youtube.com/watch?v={s.get('videoId')}",
+                    'thumbnail': s.get('thumbnails')[-1].get('url') if s.get('thumbnails') else '',
+                    'durationRaw': s.get('duration') or '',
+                    'durationInSec': s.get('duration_seconds') or 0,
+                    'views': s.get('views') or '',
+                    'artistId': c_id,
+                    'channel': {'name': artist_name}
+                })
+
+            raw_albums = artist_data.get('albums', {}).get('results', [])
+            for a in raw_albums[:10]:
+                top_albums.append({
+                    'id': a.get('browseId'),
+                    'name': a.get('title'),
+                    'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
+                    'year': a.get('year') or '',
+                    'type': 'Album'
+                })
+
+            raw_singles = artist_data.get('singles', {}).get('results', [])
+            for a in raw_singles[:10]:
+                singles.append({
+                    'id': a.get('browseId'),
+                    'name': a.get('title'),
+                    'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
+                    'year': a.get('year') or '',
+                    'type': 'Single'
+                })
+
+        # Extra songs & albums search (for indie artists, Cyrillic names, or when user clicks 'View All Music')
+        if len(songs) < 5 or view_all or not artist_data:
+            try:
+                search_query = artist_name if artist_name else artist_id
+                extra_songs = yt.search(search_query, filter='songs')
+                seen_vids = {s['id'] for s in songs}
+                for s in extra_songs:
+                    vid = s.get('videoId')
+                    if not vid or vid in seen_vids:
+                        continue
+                    artists = [art.get('name', '') for art in s.get('artists', [])]
+                    if not artists or any(search_query.lower() in art.lower() for art in artists) or search_query.lower() in s.get('title', '').lower():
+                        seen_vids.add(vid)
+                        thumb = s.get('thumbnails')[-1].get('url') if s.get('thumbnails') else ''
+                        if not avatar_url and thumb:
+                            avatar_url = thumb
+                        s_artist_name = s.get('artists', [{}])[0].get('name') if s.get('artists') else artist_name
+                        songs.append({
+                            'id': vid,
+                            'title': s.get('title'),
+                            'url': f"https://music.youtube.com/watch?v={vid}",
+                            'thumbnail': thumb,
+                            'durationRaw': s.get('duration') or '',
+                            'durationInSec': s.get('duration_seconds') or 0,
+                            'views': s.get('views') or '',
+                            'artistId': c_id,
+                            'channel': {'name': s_artist_name or artist_name}
+                        })
+            except Exception as e_extra:
+                dlog(f"Extra artist songs query failed: {e_extra}")
+
+        # If still no albums and no artist_data, try searching albums
+        if not top_albums:
+            try:
+                album_results = yt.search(artist_name, filter='albums')
+                for a in album_results[:8]:
+                    top_albums.append({
+                        'id': a.get('browseId'),
+                        'name': a.get('title'),
+                        'thumbnail': a.get('thumbnails')[-1].get('url') if a.get('thumbnails') else '',
+                        'year': a.get('year') or '',
+                        'type': 'Album'
+                    })
+            except Exception:
+                pass
+
+        if not songs and not top_albums and not singles:
+            return jsonify({'error': 'Artist not found or has no songs'}), 404
 
         return jsonify({
             'id': c_id,
-            'name': artist.get('name'),
-            'thumbnails': artist.get('thumbnails') or [],
+            'name': artist_name,
+            'thumbnails': [{'url': avatar_url}] if avatar_url else (artist_data.get('thumbnails', []) if artist_data else []),
             'songs': songs,
             'topAlbums': top_albums,
             'singles': singles,

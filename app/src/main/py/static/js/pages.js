@@ -1,4 +1,4 @@
-﻿const ICONS = {
+const ICONS = {
     heart: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>',
     heartFilled: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>',
     music: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
@@ -150,7 +150,7 @@ function toggleRowLike(btn, listId, index) {
 }
 
 function renderTrackList(tracks, container, options = {}) {
-    const { showRemove = false, onRemove = null, singleTrackQueue = false } = options;
+    const { showRemove = false, onRemove = null, singleTrackQueue = false, showViews = false } = options;
     if (!container) return;
     if (!tracks || tracks.length === 0) {
         container.innerHTML = '<div class="empty-state"><h3>No tracks found</h3></div>';
@@ -165,7 +165,7 @@ function renderTrackList(tracks, container, options = {}) {
         <span class="col-title">Title</span>
         <span class="col-artist">Artist</span>
         <span class="col-actions"></span>
-        <span class="col-time">${ICONS.clock}</span>
+        <span class="col-time">${showViews ? 'Plays' : ICONS.clock}</span>
     </div>`;
     html += '<div class="track-list-body">';
 
@@ -175,6 +175,7 @@ function renderTrackList(tracks, container, options = {}) {
         const artistName = track.channel?.name || track.artist || '';
         const durSec = track.durationInSec || track.duration || 0;
         const formattedDur = track.durationRaw || (durSec > 0 ? formatTime(durSec) : '');
+        const timeOrViews = (showViews && track.views) ? `${track.views} plays` : (track.views && !formattedDur ? `${track.views} plays` : formattedDur);
         html += `<div class="track-row ${isPlaying ? 'playing' : ''}" data-list-id="${listId}" data-list-idx="${i}" data-track-id="${escapeAttr(String(track.id || ''))}" data-index="${i + 1}">
             <div class="swipe-bg-queue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Queue</div>
             <div class="track-row-content" onclick="playTrackFromList('${listId}', ${i})">
@@ -191,7 +192,7 @@ function renderTrackList(tracks, container, options = {}) {
                     <button class="btn-icon like-btn ${liked ? 'active' : ''}" onclick="event.stopPropagation(); toggleRowLike(this, '${listId}', ${i})">${liked ? ICONS.heartFilled : ICONS.heart}</button>
                     ${showRemove ? `<button class="btn-icon danger" onclick="event.stopPropagation(); (${onRemove})(${escapeAttr(JSON.stringify(track.id))})">${ICONS.x}</button>` : ''}
                 </div>
-                <span class="col-time">${formattedDur}</span>
+                <span class="col-time" style="${showViews && track.views ? 'font-size:0.8rem;color:var(--text-secondary);font-weight:600' : ''}">${timeOrViews}</span>
             </div>
         </div>`;
     });
@@ -509,9 +510,10 @@ function renderSearchPage(container, path) {
 
     if (window._searchCache.has(cacheKey)) {
         displaySearchResults(window._searchCache.get(cacheKey));
-    } else {
-        resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
+        return;
     }
+
+    resultsEl.innerHTML = '<div class="page-loader"><div class="spinner"></div></div>';
     
     fetchWithRetry(getApiUrl(`/api/search?q=${encodeURIComponent(query)}&type=${type}`))
         .then(r => r.json())
@@ -534,8 +536,8 @@ function renderLibraryPage(container) {
     html += `<div class="settings-menu-card" onclick="navigate('/downloads')" style="margin-bottom:2rem;background:linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.05));border:1px solid rgba(16,185,129,0.3);cursor:pointer">
         <div class="settings-menu-icon" style="color:#10b981;display:flex;align-items:center;justify-content:center">${ICONS.download}</div>
         <div class="settings-menu-info">
-            <div class="settings-menu-title" style="font-size:1.1rem;font-weight:700">Downloaded Songs (Offline Travels)</div>
-            <div class="settings-menu-desc">${Store.downloadedTracks.length} songs downloaded for offline listening</div>
+            <div class="settings-menu-title" style="font-size:1.1rem;font-weight:700">Downloaded Songs</div>
+            <div class="settings-menu-desc">${Store.downloadedTracks.length} ${Store.downloadedTracks.length === 1 ? 'song' : 'songs'}</div>
         </div>
         <div style="font-size:1.2rem;color:var(--text-muted)">→</div>
     </div>`;
@@ -700,82 +702,129 @@ function renderPlaylistPage(container, id) {
 }
 
 // ===== ARTIST PAGE =====
+window._artistCache = window._artistCache || new Map();
+window._artistShowingAll = window._artistShowingAll || false;
+
+function toggleArtistAllSongs(id) {
+    window._artistShowingAll = !window._artistShowingAll;
+    const cacheKey = `${id}:${window._artistShowingAll ? 'all' : 'default'}`;
+    const container = document.getElementById('main-content');
+    if (window._artistCache.has(cacheKey)) {
+        renderArtistPage(container, id);
+    } else {
+        container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading all songs...</span></div>';
+        fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}${window._artistShowingAll ? '&all=1' : ''}`))
+            .then(r => r.json())
+            .then(artist => {
+                window._artistCache.set(cacheKey, artist);
+                renderArtistPage(container, id);
+            }).catch(e => {
+                showToast('Failed to load all songs', 'error');
+                window._artistShowingAll = !window._artistShowingAll;
+                renderArtistPage(container, id);
+            });
+    }
+}
+
 function renderArtistPage(container, id) {
+    const cacheKey = `${id}:${window._artistShowingAll ? 'all' : 'default'}`;
+    
+    const displayArtist = (artist) => {
+        if (!container) return;
+        if (artist.error) {
+            container.innerHTML = `<div class="empty-state"><h3>${escapeHtml(artist.error)}</h3></div>`;
+            return;
+        }
+        
+        const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || artist.thumbnail || artist.image || '';
+        const bgThumb = artist.thumbnails?.[0]?.url || thumb;
+        let html = '<div class="animate-fade-up">';
+        
+        // Hero
+        html += `<div class="hero-section artist-hero" style="background-image:url('${bgThumb}');position:relative;overflow:hidden;padding:2.5rem 2rem;border-radius:16px;margin-bottom:1.5rem">
+            <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.85));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"></div>
+            <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem">
+                <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
+                <div>
+                    <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Artist</div>
+                    <h1 style="margin:0.25rem 0;font-size:2.4rem;font-weight:800">${escapeHtml(artist.name || '')}</h1>
+                </div>
+            </div>
+        </div>`;
+        
+        // Actions
+        if (artist.songs && artist.songs.length > 0) {
+            html += '<div class="hero-actions">';
+            html += `<button class="action-btn primary" onclick="Player.playTrack(window._artistSongs[0], window._artistSongs)">▶ Play</button>`;
+            html += `<button class="action-btn secondary" onclick="Player.playTrack(window._artistSongs[Math.floor(Math.random()*window._artistSongs.length)], window._artistSongs)">🔀 Shuffle</button>`;
+            html += '</div>';
+        }
+        
+        // Songs Header with View All Music toggle
+        if (artist.songs && artist.songs.length > 0) {
+            html += `<section>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                    <h2 class="section-title" style="margin:0">${window._artistShowingAll ? 'All Songs' : 'Popular Songs'}</h2>
+                    <button class="action-btn secondary" style="padding:6px 14px;font-size:0.82rem;border-radius:var(--radius-full);display:inline-flex;align-items:center;gap:6px" onclick="toggleArtistAllSongs('${encodeURIComponent(id)}')">
+                        ${window._artistShowingAll ? 'Show Top Songs' : 'View All Music (' + artist.songs.length + ')'}
+                    </button>
+                </div>
+                <div id="artist-tracks"></div>
+            </section>`;
+        }
+        
+        // Albums
+        if (artist.topAlbums && artist.topAlbums.length > 0) {
+            html += '<section style="margin-top:2rem"><h2 class="section-title">Albums</h2><div class="card-grid">';
+            artist.topAlbums.forEach(a => {
+                html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
+                    <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
+                    <div class="album-card-name">${escapeHtml(a.name || '')}</div>
+                    <div class="album-card-type">${a.year || 'Album'}</div>
+                </div>`;
+            });
+            html += '</div></section>';
+        }
+        
+        // Singles
+        if (artist.singles && artist.singles.length > 0) {
+            html += '<section style="margin-top:2rem"><h2 class="section-title">Singles & EPs</h2><div class="card-grid">';
+            artist.singles.forEach(a => {
+                html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
+                    <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
+                    <div class="album-card-name">${escapeHtml(a.name || '')}</div>
+                    <div class="album-card-type">${a.year || 'Single'}</div>
+                </div>`;
+            });
+            html += '</div></section>';
+        }
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+        // Render track list with showViews: true to display stream count per song
+        if (artist.songs && artist.songs.length > 0) {
+            window._artistSongs = artist.songs;
+            renderTrackList(artist.songs, document.getElementById('artist-tracks'), { showViews: true });
+        }
+    };
+
+    if (window._artistCache.has(cacheKey)) {
+        displayArtist(window._artistCache.get(cacheKey));
+        return;
+    }
+
     container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading artist...</span></div>';
     
-    fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}`))
+    fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}${window._artistShowingAll ? '&all=1' : ''}`))
         .then(r => r.json())
         .then(artist => {
-            if (artist.error) {
-                container.innerHTML = `<div class="empty-state"><h3>${escapeHtml(artist.error)}</h3></div>`;
-                return;
-            }
-            
-            const thumb = artist.thumbnails?.[artist.thumbnails.length - 1]?.url || artist.thumbnails?.[0]?.url || artist.thumbnail || artist.image || '';
-            const bgThumb = artist.thumbnails?.[0]?.url || thumb;
-            let html = '<div class="animate-fade-up">';
-            
-            // Hero
-            html += `<div class="hero-section artist-hero" style="background-image:url('${bgThumb}');position:relative;overflow:hidden;padding:2.5rem 2rem;border-radius:16px;margin-bottom:1.5rem">
-                <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.85));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)"></div>
-                <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem">
-                    <img class="artist-profile-avatar" src="${thumb || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="${escapeHtml(artist.name || '')}" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.25);box-shadow:0 8px 24px rgba(0,0,0,0.6);flex-shrink:0">
-                    <div>
-                        <div class="hero-type" style="font-size:0.85rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;opacity:0.85">Artist</div>
-                        <h1 style="margin:0.25rem 0;font-size:2.4rem;font-weight:800">${escapeHtml(artist.name || '')}</h1>
-                    </div>
-                </div>
-            </div>`;
-            
-            // Actions
-            if (artist.songs && artist.songs.length > 0) {
-                html += '<div class="hero-actions">';
-                html += `<button class="action-btn primary" onclick="Player.playTrack(window._artistSongs[0], window._artistSongs)">▶ Play</button>`;
-                html += `<button class="action-btn secondary" onclick="Player.playTrack(window._artistSongs[Math.floor(Math.random()*window._artistSongs.length)], window._artistSongs)">🔀 Shuffle</button>`;
-                html += '</div>';
-            }
-            
-            // Songs
-            if (artist.songs && artist.songs.length > 0) {
-                html += '<section><h2 class="section-title">Popular Songs</h2><div id="artist-tracks"></div></section>';
-            }
-            
-            // Albums
-            if (artist.topAlbums && artist.topAlbums.length > 0) {
-                html += '<section style="margin-top:2rem"><h2 class="section-title">Albums</h2><div class="card-grid">';
-                artist.topAlbums.forEach(a => {
-                    html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
-                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
-                        <div class="album-card-name">${escapeHtml(a.name || '')}</div>
-                        <div class="album-card-type">${a.year || 'Album'}</div>
-                    </div>`;
-                });
-                html += '</div></section>';
-            }
-            
-            // Singles
-            if (artist.singles && artist.singles.length > 0) {
-                html += '<section style="margin-top:2rem"><h2 class="section-title">Singles & EPs</h2><div class="card-grid">';
-                artist.singles.forEach(a => {
-                    html += `<div class="album-card" onclick="navigate('/album/${encodeURIComponent(a.id)}')">
-                        <img class="album-card-img" src="${a.thumbnail || FALLBACK_IMG}" onerror="this.onerror=null;this.src=FALLBACK_IMG;">
-                        <div class="album-card-name">${escapeHtml(a.name || '')}</div>
-                        <div class="album-card-type">${a.year || 'Single'}</div>
-                    </div>`;
-                });
-                html += '</div></section>';
-            }
-            
-            html += '</div>';
-            container.innerHTML = html;
-            
-            // Render track list separately to handle onclick bindings
-            if (artist.songs && artist.songs.length > 0) {
-                window._artistSongs = artist.songs;
-                renderTrackList(artist.songs, document.getElementById('artist-tracks'));
-            }
+            window._artistCache.set(cacheKey, artist);
+            displayArtist(artist);
         }).catch(e => {
-            container.innerHTML = `<div class="empty-state"><h3>Failed to load artist</h3><p>${e.message}</p></div>`;
+            if (!window._artistCache.has(cacheKey) && container) {
+                container.innerHTML = `<div class="empty-state"><h3>Failed to load artist</h3><p>${e.message}</p></div>`;
+            }
         });
 }
 
