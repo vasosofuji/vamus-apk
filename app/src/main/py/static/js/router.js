@@ -1,4 +1,4 @@
-﻿// Hash-based SPA router
+// Hash-based SPA router
 const Router = {
     currentRoute: '/',
     
@@ -54,11 +54,16 @@ const Router = {
         }
 
         const playerBar = document.getElementById('player-bar');
+        const appContainer = document.getElementById('app');
         if (playerBar) {
             if (isSettings || isMobilePlayerOpen || !Store.currentTrack) {
                 playerBar.style.display = 'none';
+                if (appContainer) appContainer.classList.remove('has-player');
+                document.body.classList.remove('has-player');
             } else {
                 playerBar.style.display = '';
+                if (appContainer) appContainer.classList.add('has-player');
+                document.body.classList.add('has-player');
             }
         }
         

@@ -891,6 +891,7 @@ body.glass-subtle .album-card,
 body.glass-subtle .track-row,
 body.glass-subtle .sidebar,
 body.glass-subtle .player-bar,
+body.glass-subtle .bottom-nav,
 body.glass-subtle .top-bar,
 body.glass-subtle .modal-box {
   background: rgba(255, 255, 255, 0.07) !important;
@@ -907,6 +908,7 @@ body.glass-frosted .album-card,
 body.glass-frosted .track-row,
 body.glass-frosted .sidebar,
 body.glass-frosted .player-bar,
+body.glass-frosted .bottom-nav,
 body.glass-frosted .top-bar,
 body.glass-frosted .modal-box {
   background: rgba(255, 255, 255, 0.05) !important;
@@ -923,6 +925,7 @@ body.glass-clear .album-card,
 body.glass-clear .track-row,
 body.glass-clear .sidebar,
 body.glass-clear .player-bar,
+body.glass-clear .bottom-nav,
 body.glass-clear .top-bar,
 body.glass-clear .modal-box {
   background: rgba(255, 255, 255, 0.02) !important;
@@ -1549,8 +1552,9 @@ body.mobile-player-open .player-bar {
     -webkit-overflow-scrolling: touch;
     height: 100%;
   }
-  .app-container.has-player .main-content {
-    padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); /* space for bottom-nav + player-bar + gaps */
+  .app-container.has-player .main-content,
+  body.has-player .main-content {
+    padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px)) !important; /* space for conjoined dual-deck control bar */
   }
   body.page-settings .main-content,
   body.page-settings .app-container.has-player .main-content {
@@ -1560,27 +1564,31 @@ body.mobile-player-open .player-bar {
   .top-bar { padding: 0.75rem 0; }
   .search-form { max-width: 100%; }
 
-  /* ---- Mini player bar ---- */
+  /* ---- Mini player bar (Conjoined Top Deck) ---- */
   .player-bar {
     position: fixed;
-    bottom: 74px; /* positioned close above bottom-nav */
-    left: 12px;
-    right: 12px;
-    width: calc(100% - 24px);
+    bottom: calc(52px + max(8px, env(safe-area-inset-bottom, 8px))); /* Exactly touches bottom-nav with 0 gap */
+    left: 10px;
+    right: 10px;
+    width: calc(100% - 20px);
     height: var(--player-height);
-    padding: 0 16px;
+    padding: 0 14px;
     margin: 0;
-    border-radius: 16px;
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    background: rgba(18, 18, 18, 0.5) !important;
-    backdrop-filter: blur(20px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    background: rgba(18, 18, 18, 0.75) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    z-index: 1200;
+    z-index: 1201;
     overflow: hidden;
   }
 
@@ -1683,22 +1691,33 @@ body.mobile-player-open .player-bar {
     transform: translateX(1px); /* Visually center triangle */
   }
 
-  /* ---- Bottom navigation ---- */
+  /* ---- Bottom navigation (Conjoined Bottom Deck) ---- */
   .bottom-nav {
     position: fixed;
-    bottom: 12px;
-    left: 12px;
-    right: 12px;
-    width: calc(100% - 24px);
+    bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    left: 10px;
+    right: 10px;
+    width: calc(100% - 20px);
     height: var(--bottom-nav-height);
     display: flex;
     border-radius: 16px;
-    background-color: rgba(18, 18, 18, 0.5) !important;
-    backdrop-filter: blur(20px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    background-color: rgba(18, 18, 18, 0.75) !important;
+    backdrop-filter: blur(24px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    z-index: 50;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+    z-index: 1200;
+    transition: border-radius 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
+  }
+
+  .app-container.has-player .bottom-nav,
+  body.has-player .bottom-nav {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-left-radius: 16px !important;
+    border-bottom-right-radius: 16px !important;
+    border-top: none !important;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55) !important;
   }
 
   .bottom-nav-item {

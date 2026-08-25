@@ -598,8 +598,11 @@ function closeMobilePlayer() {
         }
     }
     const playerBar = document.getElementById('player-bar');
+    const app = document.getElementById('app');
     if (playerBar && Store.currentTrack) {
         playerBar.style.display = '';
+        if (app) app.classList.add('has-player');
+        document.body.classList.add('has-player');
     }
 }
 
@@ -608,6 +611,9 @@ function showMobilePlayer() {
     if (!overlay || !Store.currentTrack) return;
     
     document.body.classList.add('mobile-player-open');
+    document.body.classList.remove('has-player');
+    const app = document.getElementById('app');
+    if (app) app.classList.remove('has-player');
     const bottomNav = document.getElementById('bottom-nav');
     if (bottomNav) bottomNav.style.display = 'none';
     const playerBar = document.getElementById('player-bar');

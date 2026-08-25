@@ -1246,14 +1246,17 @@ const Player = {
         const isSettings = (typeof Router !== 'undefined' && Router.currentRoute && (Router.currentRoute === '/settings' || Router.currentRoute.startsWith('/settings'))) || document.body.classList.contains('page-settings');
         const isMobilePlayerOpen = document.body.classList.contains('mobile-player-open');
 
+        const app = document.getElementById('app');
         if (isSettings || isMobilePlayerOpen) {
             bar.style.display = 'none';
+            if (app) app.classList.remove('has-player');
+            document.body.classList.remove('has-player');
             return;
         }
 
         bar.style.display = 'flex';
-        const app = document.getElementById('app');
         if (app) app.classList.add('has-player');
+        document.body.classList.add('has-player');
     },
     
     updatePlayerUI() {
