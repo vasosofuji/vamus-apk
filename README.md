@@ -3,7 +3,7 @@
 <p align="center">
   <img src="app/src/main/res/mipmap-xxhdpi/ic_launcher.png" width="96" alt="Vamus Logo" /><br><br>
   <a href="https://github.com/vasosofuji/vamus-apk/raw/main/vamus-latest.apk">
-    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.19-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
+    <img src="https://img.shields.io/badge/📥_Download_Latest_APK-v1.0.29-1DB954?style=for-the-badge&logo=android&logoColor=white" alt="Download Latest APK" />
   </a>
 </p>
 
@@ -84,8 +84,15 @@ Run the following command in your terminal:
 ./gradlew :app:assembleDebug
 ```
 
-The compiled APK will be generated at:
-`app/build/outputs/apk/debug/app-debug.apk`
+> [!NOTE]
+> The root `build.gradle` relocates Gradle's build directory off the project tree
+> (`layout.buildDirectory`), so the APK does **not** land in `app/build/`. It is
+> written to `<buildDirectory>/app/outputs/apk/debug/app-debug.apk` — by default
+> `C:/Users/matej/.vamus_build/app/outputs/apk/debug/app-debug.apk`. Change that
+> line if you build on a different machine.
+
+The released build is also committed to the repo root as `vamus-latest.apk`
+(mirrored at `dist/vamus.apk`), which is what the download badge above points at.
 
 ### Updating the App Without Losing Data
 When installing an updated APK over an existing version on your Android device:
@@ -105,7 +112,7 @@ android/
 │       └── main/
 │           ├── assets/public/           # Web frontend the WebView actually loads (build copy, gitignored)
 │           ├── java/com/matej/vamus/    # Native Android services (ExoPlayer MediaPlaybackService, MainActivity)
-│           ├── python/                  # Backend Python application logic & Flask APIs
+│           ├── py/                      # Backend Python application logic & Flask APIs
 │           │   ├── static/              # Tracked copy of the web frontend (HTML, CSS, JS, Store, Player)
 │           │   └── app.py               # Main Python app module
 │           └── res/                     # Scaled Android drawable & launcher assets
@@ -114,7 +121,7 @@ android/
 
 > [!NOTE]
 > **The frontend lives in two places.** Capacitor serves the UI from `assets/public/`
-> (gitignored build copy), while `python/static/` is the version tracked in git and
+> (gitignored build copy), while `py/static/` is the version tracked in git and
 > bundled with the Flask backend. Editing only one of them is the most common way to
 > make a change that appears to do nothing — keep both in sync.
 

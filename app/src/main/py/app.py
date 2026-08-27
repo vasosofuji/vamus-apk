@@ -828,6 +828,10 @@ def api_debug_push():
 @app.route('/api/artist')
 def api_artist():
     artist_id = request.args.get('id', '').strip()
+    # The client knows the artist's display name from the track it navigated
+    # from. Passing it lets us recover when the id turns out not to be a
+    # YouTube Music artist channel (see below).
+    hint_name = request.args.get('name', '').strip()
     view_all = request.args.get('all') == '1'
     if not artist_id:
         return jsonify({'error': 'Query parameter id is required'}), 400
@@ -838,41 +842,68 @@ def api_artist():
 
         c_id = artist_id
         artist_data = None
-        
+        # Avatar taken from an artist *search* hit. Search results carry the real
+        # channel avatar for practically every artist, whereas get_artist only
+        # works for official YouTube Music artist channels — so this is the
+        # picture we fall back to before ever resorting to album art.
+        search_avatar = ''
+
+        is_channel_id = artist_id.startswith('UC') or artist_id.startswith('MP')
+
         # If artist_id is a channel ID (starts with UC or MP)
-        if artist_id.startswith('UC') or artist_id.startswith('MP'):
+        if is_channel_id:
             try:
                 artist_data = yt.get_artist(artist_id)
             except Exception as e:
+                # Very common: the id came from a plain YouTube uploader channel
+                # (the Piped/Invidious path builds artistId from uploaderUrl),
+                # which has no musicImmersiveHeaderRenderer. Previously this left
+                # the whole response empty — no name, no avatar, no songs.
                 dlog(f"yt.get_artist({artist_id}) error: {e}")
                 artist_data = None
 
-        if not artist_data and not (artist_id.startswith('UC') or artist_id.startswith('MP')):
-            # Try searching for artist with name match verification
-            try:
-                search_results = yt.search(artist_id, filter='artists')
-                matched_id = None
-                for a in search_results:
-                    a_name = (a.get('artist') or a.get('title') or '').lower().strip()
-                    if artist_id.lower().strip() == a_name or artist_id.lower().strip() in a_name:
-                        matched_id = a.get('browseId')
-                        break
-                if matched_id:
-                    c_id = matched_id
-                    artist_data = yt.get_artist(c_id)
-            except Exception as e:
-                dlog(f"yt search/get_artist fallback error: {e}")
-                artist_data = None
+        # Resolve by name whenever the id lookup gave us nothing. This used to be
+        # skipped for UC/MP ids, which is exactly when it is needed most.
+        if not artist_data:
+            query_name = hint_name or ('' if is_channel_id else artist_id)
+            if query_name:
+                try:
+                    search_results = yt.search(query_name, filter='artists')
+                    q_norm = query_name.lower().strip()
+                    matched = None
+                    for a in search_results:
+                        a_name = (a.get('artist') or a.get('title') or '').lower().strip()
+                        if q_norm == a_name or q_norm in a_name or a_name in q_norm:
+                            matched = a
+                            break
+                    if matched is None and search_results:
+                        matched = search_results[0]
+                    if matched:
+                        if matched.get('thumbnails'):
+                            search_avatar = matched.get('thumbnails')[-1].get('url') or ''
+                        matched_id = matched.get('browseId')
+                        if matched_id:
+                            c_id = matched_id
+                            try:
+                                artist_data = yt.get_artist(c_id)
+                            except Exception as e_inner:
+                                dlog(f"yt.get_artist({c_id}) after name match failed: {e_inner}")
+                                artist_data = None
+                except Exception as e:
+                    dlog(f"yt search/get_artist fallback error: {e}")
 
         songs = []
         top_albums = []
         singles = []
-        artist_name = artist_id
+        # Never fall back to the raw id here: for a channel id that would put
+        # "UCnazznLA4ddeaHZoFXR8FfQ" in the page title and, worse, use it as the
+        # query for the supplementary song search further down.
+        artist_name = hint_name or ('' if is_channel_id else artist_id)
         avatar_url = ''
         banner_url = ''
 
         if artist_data:
-            artist_name = artist_data.get('name') or artist_id
+            artist_name = artist_data.get('name') or artist_name
             if artist_data.get('thumbnails'):
                 raw_thumb = artist_data.get('thumbnails')[-1].get('url')
                 avatar_url = get_high_res_avatar(raw_thumb)
@@ -915,7 +946,11 @@ def api_artist():
         # Extra songs & albums search (for indie artists, Cyrillic names, or when user clicks 'View All Music')
         if len(songs) < 5 or view_all or not artist_data:
             try:
-                search_query = artist_name if artist_name else artist_id
+                # Searching songs for a raw "UC..." id returns nothing useful, so
+                # only fall back to the id when it is actually a name.
+                search_query = artist_name or ('' if is_channel_id else artist_id)
+                if not search_query:
+                    raise ValueError('no usable artist name to search songs for')
                 extra_songs = yt.search(search_query, filter='songs')
                 seen_vids = {s['id'] for s in songs}
                 for s in extra_songs:
@@ -944,7 +979,26 @@ def api_artist():
             except Exception as e_extra:
                 dlog(f"Extra artist songs query failed: {e_extra}")
 
-        # If still no avatar/banner, fallback to top song thumbnail
+        # Prefer a real channel avatar over album art. Search results carry one
+        # for nearly every artist, including the ones get_artist can't parse;
+        # without this step anyone short of an official artist channel got their
+        # album cover (or nothing) shown as their profile picture.
+        if not avatar_url and not search_avatar and artist_name:
+            try:
+                for a in yt.search(artist_name, filter='artists'):
+                    a_name = (a.get('artist') or a.get('title') or '').lower().strip()
+                    n_norm = artist_name.lower().strip()
+                    if (n_norm == a_name or n_norm in a_name or a_name in n_norm) and a.get('thumbnails'):
+                        search_avatar = a.get('thumbnails')[-1].get('url') or ''
+                        break
+            except Exception as e_av:
+                dlog(f"artist avatar search failed: {e_av}")
+
+        if not avatar_url and search_avatar:
+            avatar_url = get_high_res_avatar(search_avatar)
+            banner_url = get_high_res_banner(search_avatar)
+
+        # Last resort only: the top song's cover art.
         if not avatar_url and songs:
             avatar_url = get_high_res_avatar(songs[0].get('thumbnail'))
             banner_url = get_high_res_banner(songs[0].get('thumbnail'))
@@ -969,7 +1023,7 @@ def api_artist():
 
         return jsonify({
             'id': c_id,
-            'name': artist_name,
+            'name': artist_name or hint_name or 'Unknown Artist',
             'avatar': avatar_url,
             'banner': banner_url,
             'thumbnail': avatar_url,

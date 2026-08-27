@@ -8,8 +8,8 @@ android {
         applicationId "com.matej.vamus"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 29
-        versionName "1.0.28"
+        versionCode 30
+        versionName "1.0.29"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -43,6 +43,13 @@ android {
                 // user enters in Settings, so no .env is needed at runtime.
                 exclude "**/.env"
                 exclude "**/.env.*"
+                // Runtime state, not source. Whatever happens to be sitting in
+                // the working tree when the APK is built otherwise ships to
+                // every user: the e2e suite leaves a test playlist in
+                // vamus_user_data.json and a 3.4MB track under downloads/.
+                exclude "**/vamus_user_data.json"
+                exclude "**/downloads/**"
+                exclude "**/__pycache__/**"
             }
         }
     }

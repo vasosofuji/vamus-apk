@@ -495,8 +495,9 @@ function renderSearchPage(container, path) {
             }
             let grid = '<div class="card-grid">';
             results.forEach(a => {
+                rememberArtistName(a.id, a.name);
                 grid += `<div class="artist-card" onclick="navigate('/artist/${encodeURIComponent(a.id)}')">
-                    <img class="artist-card-img" src="${getTrackThumbnail(a)}" onerror="this.onerror=null;this.src=FALLBACK_IMG">
+                    <img class="artist-card-img" src="${escapeAttr(getTrackThumbnail(a))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" loading="lazy">
                     <div class="artist-card-name">${escapeHtml(a.name)}</div>
                     <div class="artist-card-type">Artist</div>
                 </div>`;
@@ -704,6 +705,23 @@ function renderPlaylistPage(container, id) {
 // ===== ARTIST PAGE =====
 window._artistCache = window._artistCache || new Map();
 window._artistShowingAll = window._artistShowingAll || false;
+// An artist id is not always a YouTube Music artist channel — ids taken from a
+// track's uploader are plain YouTube channels, and /api/artist can't parse
+// those. Remembering the display name we already had lets the backend resolve
+// the artist by name instead of returning an empty page.
+window._artistNameHints = window._artistNameHints || new Map();
+
+function rememberArtistName(id, name) {
+    if (!id || !name) return;
+    try { window._artistNameHints.set(String(id), String(name)); } catch (e) {}
+}
+
+function artistQuery(id) {
+    const hint = window._artistNameHints.get(String(id));
+    return `/api/artist?id=${encodeURIComponent(id)}`
+        + (hint && hint !== id ? `&name=${encodeURIComponent(hint)}` : '')
+        + (window._artistShowingAll ? '&all=1' : '');
+}
 
 function toggleArtistAllSongs(id) {
     window._artistShowingAll = !window._artistShowingAll;
@@ -713,7 +731,7 @@ function toggleArtistAllSongs(id) {
         renderArtistPage(container, id);
     } else {
         container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading all songs...</span></div>';
-        fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}${window._artistShowingAll ? '&all=1' : ''}`))
+        fetchWithRetry(getApiUrl(artistQuery(id)))
             .then(r => r.json())
             .then(artist => {
                 window._artistCache.set(cacheKey, artist);
@@ -741,14 +759,14 @@ function renderArtistPage(container, id) {
         let html = '<div class="animate-fade-up">';
         
         // Hero
-        html += `<div class="hero-section artist-hero" style="background-image:url('${escapeAttr(banner)}');position:relative;overflow:hidden;padding:2.5rem 2rem 2.2rem;border-radius:20px;margin-bottom:1.5rem;min-height:220px;display:flex;align-items:flex-end">
-            <div class="hero-overlay" style="position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(9,9,11,0.85) 100%);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)"></div>
-            <div class="hero-info" style="position:relative;z-index:2;display:flex;align-items:center;gap:1.5rem;width:100%">
-                <img class="artist-profile-avatar" src="${escapeAttr(avatar)}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'" alt="${escapeHtml(artist.name || '')}">
-                <div style="flex:1;min-width:0">
-                    <div class="hero-type" style="font-size:0.8rem;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;color:var(--primary-color);margin-bottom:4px">Artist</div>
-                    <h1 style="margin:0 0 6px 0;font-size:2.4rem;font-weight:900;letter-spacing:-0.5px;line-height:1.15;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(artist.name || '')}</h1>
-                    ${artist.songs ? `<div style="font-size:0.85rem;color:rgba(255,255,255,0.75);font-weight:600">${artist.songs.length} top songs</div>` : ''}
+        html += `<div class="hero-section artist-hero" style="background-image:url('${escapeAttr(banner)}')">
+            <div class="hero-overlay"></div>
+            <div class="hero-info">
+                <img class="artist-profile-avatar" src="${escapeAttr(avatar)}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" alt="${escapeHtml(artist.name || '')}">
+                <div class="artist-hero-text">
+                    <div class="hero-type">Artist</div>
+                    <h1 class="artist-hero-name">${escapeHtml(artist.name || '')}</h1>
+                    ${artist.songs ? `<div class="artist-hero-meta">${artist.songs.length} top songs</div>` : ''}
                 </div>
             </div>
         </div>`;
@@ -817,7 +835,7 @@ function renderArtistPage(container, id) {
 
     container.innerHTML = '<div class="page-loader"><div class="spinner"></div><span>Loading artist...</span></div>';
     
-    fetchWithRetry(getApiUrl(`/api/artist?id=${encodeURIComponent(id)}${window._artistShowingAll ? '&all=1' : ''}`))
+    fetchWithRetry(getApiUrl(artistQuery(id)))
         .then(r => r.json())
         .then(artist => {
             window._artistCache.set(cacheKey, artist);

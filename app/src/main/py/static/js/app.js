@@ -745,6 +745,7 @@ function navigateToCurrentArtist(event) {
 
     const artistId = track.channel?.id || track.artistId || track.channel?.name || track.artist;
     if (artistId) {
+        if (typeof rememberArtistName === 'function') rememberArtistName(artistId, track.channel?.name || track.artist);
         navigate('/artist/' + encodeURIComponent(artistId));
     }
 }
@@ -1549,6 +1550,7 @@ function show3DTouchMenu(track, targetEl) {
     const artist = escapeHtml(track.channel?.name || track.artist || '');
     const trackJson = escapeAttr(JSON.stringify(track));
     const artistId = track.channel?.id || track.artistId;
+    if (typeof rememberArtistName === 'function') rememberArtistName(artistId, track.channel?.name || track.artist);
 
     let downloadLabel = 'Download for Offline';
     let downloadIcon = ICONS.download;
@@ -1769,8 +1771,9 @@ function performPopupSearch() {
             if (type === 'artists') {
                 let grid = '<div class="card-grid">';
                 results.forEach(a => {
+                    if (typeof rememberArtistName === 'function') rememberArtistName(a.id, a.name);
                     grid += `<div class="artist-card" onclick="closePopupSearch(); navigate('/artist/${encodeURIComponent(a.id)}')">
-                        <img class="artist-card-img" src="${getTrackThumbnail(a)}" onerror="this.onerror=null;this.src=FALLBACK_IMG">
+                        <img class="artist-card-img" src="${escapeAttr(getTrackThumbnail(a))}" onerror="this.onerror=null;this.src=FALLBACK_IMG;" loading="lazy">
                         <div class="artist-card-name">${escapeHtml(a.name)}</div>
                         <div class="artist-card-type">Artist</div>
                     </div>`;
